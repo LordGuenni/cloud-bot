@@ -2,8 +2,7 @@
 
 **Veranstaltung:** Advanced Topics in Cloud Computing (Sommersemester 2026)  
 **Dozent:** Prof. Dr.-Ing. Florian Marquardt  
-**Eingereicht von:** [Dein Vor- und Nachname]  
-**Matrikelnummer:** [Deine Matrikelnummer]  
+**Eingereicht von:** [Florian Stamer]  
 **Datum:** 04.05.2026
 
 ---
