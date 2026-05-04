@@ -22,22 +22,22 @@ FIELD_ORDER = [
     "first_name",
     "last_name",
     "birthdate",
-    "email",
-    "phone",
     "street",
     "house_number",
     "postal_code",
     "city",
     "country",
+    "email",
+    "phone",
 ]
 
 ADDRESS_FIELDS = ("street", "house_number", "postal_code", "city", "country")
 
 FIELD_PROMPTS = {
-    "first_name": "Wie lautet dein Vorname?",
+    "first_name": "Wie lauten dein Vor- und Nachname?",
     "last_name": "Wie lautet dein Nachname?",
     "birthdate": "Bitte nenne dein Geburtsdatum (TT.MM.JJJJ).",
-    "email": "Unter welcher E-Mail-Adresse bist du erreichbar?",
+    "email": "Fast geschafft. Unter welcher E-Mail-Adresse und Telefonnummer bist du erreichbar?",
     "phone": "Wie lautet deine Telefonnummer?",
     "street": "Bitte nenne deine vollständige Adresse (Straße Hausnummer, PLZ Ort, Land).",
     "house_number": "Wie lautet deine Hausnummer?",
@@ -202,6 +202,40 @@ def _build_account_payload(session: SessionState) -> dict[str, str]:
     }
 
 
+def _extract_name_values(text: str, extracted_values: dict[str, str]) -> dict[str, str]:
+    name_values: dict[str, str] = {}
+
+    extracted_first = extracted_values.get("first_name")
+    if extracted_first:
+        try:
+            name_values["first_name"] = validate_first_name(extracted_first)
+        except ValueError:
+            pass
+
+    extracted_last = extracted_values.get("last_name")
+    if extracted_last:
+        try:
+            name_values["last_name"] = validate_last_name(extracted_last)
+        except ValueError:
+            pass
+
+    if "first_name" not in name_values or "last_name" not in name_values:
+        parts = [part for part in re.split(r"\s+", text.strip()) if part]
+        if len(parts) >= 2:
+            if "first_name" not in name_values:
+                try:
+                    name_values["first_name"] = validate_first_name(parts[0])
+                except ValueError:
+                    pass
+            if "last_name" not in name_values:
+                try:
+                    name_values["last_name"] = validate_last_name(" ".join(parts[1:]))
+                except ValueError:
+                    pass
+
+    return name_values
+
+
 def _can_directly_validate_address_field(field: str, text: str) -> bool:
     cleaned = text.strip()
     if not cleaned:
@@ -293,6 +327,37 @@ def handle_message(
     if extract_entities:
         extracted_values = extract_entities(text)
 
+    if session.current_field == "first_name":
+        if _is_ambiguous_for_field("first_name", text):
+            return ChatResponse(
+                session_id=session.session_id,
+                reply="Ich habe mehrere mögliche Namen erkannt. Bitte nenne genau einen Vor- und Nachnamen.",
+                expected_field="first_name",
+            )
+
+        name_values = _extract_name_values(text, extracted_values)
+        if not name_values:
+            return ChatResponse(
+                session_id=session.session_id,
+                reply=f"Ich konnte Vor- und Nachname nicht sicher erkennen. {FIELD_PROMPTS['first_name']}",
+                expected_field="first_name",
+            )
+
+        session.values.update(name_values)
+        if not session.values.get("last_name"):
+            session.current_field = "last_name"
+            return ChatResponse(
+                session_id=session.session_id,
+                reply=FIELD_PROMPTS["last_name"],
+                expected_field="last_name",
+            )
+        session.current_field = "birthdate"
+        return ChatResponse(
+            session_id=session.session_id,
+            reply=FIELD_PROMPTS["birthdate"],
+            expected_field="birthdate",
+        )
+
     if session.current_field in ADDRESS_FIELDS:
         if _is_ambiguous_for_field(session.current_field, text):
             return ChatResponse(
@@ -352,6 +417,14 @@ def handle_message(
                 session_id=session.session_id,
                 reply=_build_address_followup(session.values, missing_address),
                 expected_field=missing_address,
+            )
+        next_field = _next_missing_field(session.values, "country")
+        if next_field:
+            session.current_field = next_field
+            return ChatResponse(
+                session_id=session.session_id,
+                reply=FIELD_PROMPTS[next_field],
+                expected_field=next_field,
             )
         session.awaiting_confirmation = True
         return ChatResponse(

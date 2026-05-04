@@ -34,7 +34,7 @@ Der nachfolgende Ablauf beschreibt den idealen Pfad ("Happy Path") der Registrie
 5. **Validierung & Abschluss:**
     * **Bot:** "Vielen Dank. Ich fasse zusammen: Du heißt [Name], wohnst in [Ort] und deine E-Mail ist [E-Mail]. Sind diese Daten korrekt?"
     * **Nutzer:** "Ja." / "Nein" (Bei "Nein" Rücksprung zur entsprechenden Abfrage).
-    * *System-Aktion:* Daten werden über den App Service an die Azure SQL Database übermittelt. Passwörter werden gemäß Anforderung nicht erfasst.
+    * *System-Aktion:* Daten werden über den App Service an Cosmos DB übermittelt. Passwörter werden gemäß Anforderung nicht erfasst.
     * **Bot:** "Dein Account wurde erfolgreich angelegt. Auf Wiedersehen!"
 
 ---
