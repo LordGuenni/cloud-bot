@@ -1,0 +1,1 @@
+"""Registration bot application package."""

@@ -1,0 +1,77 @@
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.container {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+h1 {
+  margin-top: 0;
+  font-size: 1.4rem;
+}
+
+.chat {
+  min-height: 420px;
+  max-height: 65vh;
+  overflow-y: auto;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 12px;
+  background: #111827;
+}
+
+.msg {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  max-width: 90%;
+  white-space: pre-wrap;
+}
+
+.bot {
+  background: #1e293b;
+}
+
+.user {
+  background: #164e63;
+  margin-left: auto;
+}
+
+.composer {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.composer input {
+  flex: 1;
+  border-radius: 8px;
+  border: 1px solid #334155;
+  background: #020617;
+  color: #e2e8f0;
+  padding: 10px;
+}
+
+.composer button {
+  border: 1px solid #334155;
+  background: #0b5ed7;
+  color: white;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.composer #voice-btn {
+  background: #7c3aed;
+}
+
+.hint {
+  color: #94a3b8;
+  font-size: 0.9rem;
+}

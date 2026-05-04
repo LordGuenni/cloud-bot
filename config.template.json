@@ -1,0 +1,30 @@
+{
+  "subscription_id": "<YOUR_SUBSCRIPTION_ID>",
+  "tenant_id": "<YOUR_TENANT_ID>",
+  "resource_group": "<YOUR_RESOURCE_GROUP>",
+  "location": "<YOUR_LOCATION>",
+  "key_vault_uri": "https://<YOUR_KEYVAULT_NAME>.vault.azure.net/",
+  "required_resource_types": [
+    "Microsoft.BotService/botServices",
+    "Microsoft.CognitiveServices/accounts",
+    "Microsoft.KeyVault/vaults",
+    "Microsoft.DocumentDB/databaseAccounts",
+    "Microsoft.Web/sites"
+  ],
+  "expected_resource_names": {
+    "Microsoft.KeyVault/vaults": "<YOUR_KEYVAULT_NAME>"
+  },
+  "key_vault_secret_names": {
+    "sql_connection": "",
+    "speech_key": "speech-key",
+    "speech_region": "speech-region",
+    "bot_app_id": "bot-app-id",
+    "bot_app_secret": "bot-app-secret",
+    "language_endpoint": "language-endpoint",
+    "language_key": "language-key",
+    "cosmos_endpoint": "cosmos-endpoint",
+    "cosmos_key": "cosmos-key",
+    "cosmos_database": "cosmos-database",
+    "cosmos_container": "cosmos-container"
+  }
+}
