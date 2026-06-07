@@ -48,6 +48,14 @@ resource webApp 'Microsoft.Web/sites@2022-03-01' = {
           value: 'true'
         }
         {
+          name: 'WEBSITES_PORT'
+          value: '8000'
+        }
+        {
+          name: 'WEBSITES_CONTAINER_START_TIME_LIMIT'
+          value: '600'
+        }
+        {
           name: 'KEY_VAULT_URI'
           value: 'https://${kvName}${az.environment().suffixes.keyvaultDns}/'
         }

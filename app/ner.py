@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import logging
 from dataclasses import dataclass
 
 from azure.ai.textanalytics import TextAnalyticsClient
@@ -9,15 +10,19 @@ from azure.identity import ManagedIdentityCredential, DefaultAzureCredential
 
 from .validation import parse_full_address
 
+logger = logging.getLogger(__name__)
+
 class AzureNerExtractor:
     MIN_GENERAL_CONFIDENCE = 0.6
     MIN_PII_CONFIDENCE = 0.6
 
     def __init__(self, endpoint: str, key: str | None = None) -> None:
+        self.endpoint = endpoint
         if key and len(key) > 5:
+            logger.info(f"AzureNerExtractor: Initializing with API Key (length: {len(key)})")
             self.credential = AzureKeyCredential(key)
         else:
-            # Try Managed Identity specifically
+            logger.info("AzureNerExtractor: No API Key provided or too short. Using DefaultAzureCredential.")
             self.credential = DefaultAzureCredential()
             
         self.client = TextAnalyticsClient(
@@ -30,21 +35,22 @@ class AzureNerExtractor:
             raise RuntimeError("Azure AI Language Client ist nicht initialisiert.")
             
         try:
+            logger.debug(f"AzureNerExtractor: Requesting entities for text: '{text[:50]}...'")
             docs = [text]
-            # Wir rufen nur eine einfache Methode auf, um die Auth zu testen
             response = self.client.recognize_entities(docs)
             if not response or len(response) == 0:
+                logger.warning("AzureNerExtractor: Empty response from recognize_entities.")
                 return {}
             general = response[0]
             
-            # PII separat, falls es dort knallt
             pii_response = self.client.recognize_pii_entities(docs)
             pii = pii_response[0] if pii_response else None
+            logger.info("AzureNerExtractor: Successfully received entities from Azure.")
         except Exception as exc:
-            # Hier fangen wir den exakten Fehler vom Azure SDK ab
             error_msg = str(exc)
+            logger.error(f"AzureNerExtractor: SDK Error: {error_msg}")
             if "Authorization" in error_msg:
-                error_msg += " | Tipp: Prüfe ob Managed Identity aktiv ist und die Rolle 'Cognitive Services User' hat."
+                error_msg += f" | Auth-Method: {'Key' if isinstance(self.credential, AzureKeyCredential) else 'Identity'}"
             raise RuntimeError(f"Azure SDK Fehler: {error_msg}") from exc
 
         if general.is_error:
