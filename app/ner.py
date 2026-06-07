@@ -5,35 +5,34 @@ from dataclasses import dataclass
 
 from azure.ai.textanalytics import TextAnalyticsClient
 from azure.core.credentials import AzureKeyCredential
-from azure.identity import DefaultAzureCredential
+from azure.identity import ManagedIdentityCredential, DefaultAzureCredential
 
 from .validation import parse_full_address
-
-
-@dataclass
-class NERExtraction:
-    values: dict[str, str]
-
 
 class AzureNerExtractor:
     MIN_GENERAL_CONFIDENCE = 0.6
     MIN_PII_CONFIDENCE = 0.6
 
     def __init__(self, endpoint: str, key: str | None = None) -> None:
-        if key:
-            credential = AzureKeyCredential(key)
+        if key and len(key) > 5:
+            self.credential = AzureKeyCredential(key)
         else:
-            credential = DefaultAzureCredential()
+            # Try Managed Identity specifically
+            self.credential = DefaultAzureCredential()
             
         self.client = TextAnalyticsClient(
             endpoint=endpoint,
-            credential=credential,
+            credential=self.credential,
         )
 
     def extract(self, text: str) -> dict[str, str]:
-        docs = [text]
-        general = self.client.recognize_entities(docs)[0]
-        pii = self.client.recognize_pii_entities(docs)[0]
+        try:
+            docs = [text]
+            general = self.client.recognize_entities(docs)[0]
+            pii = self.client.recognize_pii_entities(docs)[0]
+        except Exception as exc:
+            # Re-raise with more context
+            raise RuntimeError(f"Azure AI Language Fehler (Identity check): {str(exc)}") from exc
 
         if general.is_error:
             raise RuntimeError(f"Azure NER error: {general.error}")
