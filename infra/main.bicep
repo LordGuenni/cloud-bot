@@ -20,9 +20,17 @@ var languageServiceName = '${botName}-language'
 resource appServicePlan 'Microsoft.Web/serverfarms@2022-03-01' = {
   name: '${botName}-plan'
   location: location
-  sku: { name: 'F1' }
+  sku: {
+    name: 'B1'
+    tier: 'Basic'
+    size: 'B1'
+    family: 'B'
+    capacity: 1
+  }
   kind: 'linux'
-  properties: { reserved: true }
+  properties: {
+    reserved: true
+  }
 }
 
 // 2. Web App with Managed Identity
@@ -35,7 +43,9 @@ resource webApp 'Microsoft.Web/sites@2022-03-01' = {
     siteConfig: {
       linuxFxVersion: 'PYTHON|3.11'
       appCommandLine: 'export PYTHONPATH=$PYTHONPATH:. && uvicorn app.main:app --host 0.0.0.0 --port 8000'
+      alwaysOn: true
       appSettings: [
+
         {
           name: 'KEY_VAULT_URI'
           value: 'https://${kvName}${az.environment().suffixes.keyvaultDns}/'

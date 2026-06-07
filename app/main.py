@@ -148,7 +148,18 @@ async def chat_message(request: Request) -> dict[str, Any]:
     )
 
     try:
-        await adapter.process_activity(activity, "", bot.on_turn, capture_responses)
+        # Correct way to handle logic: wrap the turn handler
+        async def turn_wrapper(context):
+            original_send_activities = context.send_activities
+            async def hooked_send_activities(activities):
+                for act in activities:
+                    if act.type == "message":
+                        responses.append(act.text)
+                return await original_send_activities(activities)
+            context.send_activities = hooked_send_activities
+            await bot.on_turn(context)
+
+        await adapter.process_activity(activity, "", turn_wrapper)
         reply_text = " ".join(responses) if responses else "Ich habe dich leider nicht verstanden."
         return {
             "session_id": "web-session",
