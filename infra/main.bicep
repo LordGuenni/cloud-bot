@@ -36,16 +36,20 @@ resource webApp 'Microsoft.Web/sites@2022-03-01' = {
     serverFarmId: appServicePlan.id
     siteConfig: {
       linuxFxVersion: 'PYTHON|3.11'
-      appCommandLine: 'export PYTHONPATH=$PYTHONPATH:. && uvicorn app.main:app --host 0.0.0.0 --port 8000'
+      appCommandLine: 'python -m uvicorn app.main:app --host 0.0.0.0 --port 8000'
       alwaysOn: true
       appSettings: [
         {
-          name: 'KEY_VAULT_URI'
-          value: 'https://${kvName}${az.environment().suffixes.keyvaultDns}/'
-        }
-        {
           name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
           value: 'true'
+        }
+        {
+          name: 'ENABLE_ORYX_BUILD'
+          value: 'true'
+        }
+        {
+          name: 'KEY_VAULT_URI'
+          value: 'https://${kvName}${az.environment().suffixes.keyvaultDns}/'
         }
       ]
     }
