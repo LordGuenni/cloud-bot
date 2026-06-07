@@ -27,10 +27,10 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           resource-group-name: ${{ secrets.AZURE_RESOURCE_GROUP }}
           template-file: ./infra/main.bicep
-          parameters: >
-            botName=stamer-registration-bot
-            microsoftAppId=${{ secrets.MICROSOFT_APP_ID }}
-            microsoftAppPassword=${{ secrets.MICROSOFT_APP_PASSWORD }}
+          parameters: |
+            botName: stamer-registration-bot
+            microsoftAppId: ${{ secrets.MICROSOFT_APP_ID }}
+            microsoftAppPassword: ${{ secrets.MICROSOFT_APP_PASSWORD }}
 
     outputs:
       webAppName: ${{ steps.deploy.outputs.webAppName }}
