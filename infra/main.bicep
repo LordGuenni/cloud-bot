@@ -35,10 +35,11 @@ resource appServicePlan 'Microsoft.Web/serverfarms@2022-03-01' = {
 
 // 2. Web App with Managed Identity
 resource webApp 'Microsoft.Web/sites@2022-03-01' = {
-  name: botName
+  name: webAppName
   location: location
   identity: { type: 'SystemAssigned' }
   properties: {
+    enabled: true
     serverFarmId: appServicePlan.id
     siteConfig: {
       linuxFxVersion: 'PYTHON|3.11'
@@ -203,6 +204,31 @@ resource secretLanguageEndpoint 'Microsoft.KeyVault/vaults/secrets@2023-02-01' =
   parent: keyVault
   name: 'language-endpoint'
   properties: { value: 'https://${languageServiceName}.cognitiveservices.azure.com/' }
+}
+
+// --- ROLLENZUWEISUNGEN FÜR MANAGED IDENTITY ---
+
+// Rolle: Cognitive Services User (ID: a97b65f3-24c7-4388-baec-2e87135dc908)
+var cognitiveServicesUserRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'a97b65f3-24c7-4388-baec-2e87135dc908')
+
+resource speechRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(speechService.id, webApp.id, cognitiveServicesUserRoleDefinitionId)
+  scope: speechService
+  properties: {
+    principalId: webApp.identity.principalId
+    roleDefinitionId: cognitiveServicesUserRoleDefinitionId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource languageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(languageService.id, webApp.id, cognitiveServicesUserRoleDefinitionId)
+  scope: languageService
+  properties: {
+    principalId: webApp.identity.principalId
+    roleDefinitionId: cognitiveServicesUserRoleDefinitionId
+    principalType: 'ServicePrincipal'
+  }
 }
 
 output webAppName string = webApp.name

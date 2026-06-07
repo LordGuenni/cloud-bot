@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from azure.ai.textanalytics import TextAnalyticsClient
 from azure.core.credentials import AzureKeyCredential
+from azure.identity import DefaultAzureCredential
 
 from .validation import parse_full_address
 
@@ -18,10 +19,15 @@ class AzureNerExtractor:
     MIN_GENERAL_CONFIDENCE = 0.6
     MIN_PII_CONFIDENCE = 0.6
 
-    def __init__(self, endpoint: str, key: str) -> None:
+    def __init__(self, endpoint: str, key: str | None = None) -> None:
+        if key:
+            credential = AzureKeyCredential(key)
+        else:
+            credential = DefaultAzureCredential()
+            
         self.client = TextAnalyticsClient(
             endpoint=endpoint,
-            credential=AzureKeyCredential(key),
+            credential=credential,
         )
 
     def extract(self, text: str) -> dict[str, str]:
