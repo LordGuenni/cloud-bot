@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any
-from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
@@ -26,11 +24,16 @@ class ChatResponse(BaseModel):
     account: dict[str, Any] | None = None
 
 
-@dataclass
-class SessionState:
-    session_id: str = field(default_factory=lambda: str(uuid4()))
-    current_field: str = "first_name"
-    values: dict[str, str] = field(default_factory=dict)
-    awaiting_confirmation: bool = False
-    awaiting_correction_field: bool = False
-
+class UserProfile:
+    def __init__(self) -> None:
+        self.first_name: str | None = None
+        self.last_name: str | None = None
+        self.birthdate: str | None = None
+        self.email: str | None = None
+        self.phone: str | None = None
+        self.street: str | None = None
+        self.house_number: str | None = None
+        self.postal_code: str | None = None
+        self.city: str | None = None
+        self.country: str | None = None
+        self.confirmed: bool = False
