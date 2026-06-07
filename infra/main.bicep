@@ -1,3 +1,4 @@
+// Build Trigger: v3.1 (Force fresh Oryx build)
 @description('The base name for the bot resources.')
 param botName string = 'stamer-registration-bot'
 
@@ -41,11 +42,11 @@ resource webApp 'Microsoft.Web/sites@2022-03-01' = {
       appSettings: [
         {
           name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
-          value: 'true'
+          value: 'false'
         }
         {
-          name: 'ENABLE_ORYX_BUILD'
-          value: 'true'
+          name: 'PYTHONPATH'
+          value: '/home/site/wwwroot/antenv/lib/python3.11/site-packages'
         }
         {
           name: 'WEBSITES_PORT'
