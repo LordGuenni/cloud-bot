@@ -11,8 +11,8 @@ param microsoftAppId string
 @secure()
 param microsoftAppPassword string
 
-// Clean naming scheme with a short unique suffix to ensure global uniqueness
-var kvName = '${botName}-kv'
+// (Key Vault is limited to 24 chars)
+var kvName = 'stamer-reg-bot-kv'
 var cosmosDbName = '${botName}-db'
 var speechServiceName = '${botName}-speech'
 var languageServiceName = '${botName}-language'
