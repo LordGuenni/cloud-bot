@@ -11,7 +11,8 @@ param microsoftAppId string
 @secure()
 param microsoftAppPassword string
 
-var kvName = 'kv-${uniqueString(resourceGroup().id, botName)}'
+// Clean naming scheme with a short unique suffix to ensure global uniqueness
+var kvName = '${botName}-kv'
 var cosmosDbName = '${botName}-db'
 var speechServiceName = '${botName}-speech'
 var languageServiceName = '${botName}-language'
@@ -20,17 +21,9 @@ var languageServiceName = '${botName}-language'
 resource appServicePlan 'Microsoft.Web/serverfarms@2022-03-01' = {
   name: '${botName}-plan'
   location: location
-  sku: {
-    name: 'B1'
-    tier: 'Basic'
-    size: 'B1'
-    family: 'B'
-    capacity: 1
-  }
+  sku: { name: 'B1', tier: 'Basic', size: 'B1', family: 'B', capacity: 1 }
   kind: 'linux'
-  properties: {
-    reserved: true
-  }
+  properties: { reserved: true }
 }
 
 // 2. Web App with Managed Identity
@@ -46,7 +39,6 @@ resource webApp 'Microsoft.Web/sites@2022-03-01' = {
       appCommandLine: 'export PYTHONPATH=$PYTHONPATH:. && uvicorn app.main:app --host 0.0.0.0 --port 8000'
       alwaysOn: true
       appSettings: [
-
         {
           name: 'KEY_VAULT_URI'
           value: 'https://${kvName}${az.environment().suffixes.keyvaultDns}/'
@@ -77,7 +69,7 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-02-01' = {
   }
 }
 
-// 4. Cosmos DB Account
+// 4. Cosmos DB
 resource cosmosDbAccount 'Microsoft.DocumentDB/databaseAccounts@2023-04-15' = {
   name: cosmosDbName
   location: location
@@ -116,7 +108,7 @@ resource speechService 'Microsoft.CognitiveServices/accounts@2023-05-01' = {
   }
 }
 
-// 6. Language Service (New)
+// 6. Language Service
 resource languageService 'Microsoft.CognitiveServices/accounts@2023-05-01' = {
   name: languageServiceName
   location: location
@@ -144,7 +136,7 @@ resource botService 'Microsoft.BotService/botServices@2023-09-15-preview' = {
   }
 }
 
-// --- AUTOMATISCHE SECRETS IM KEY VAULT ---
+// --- SECRETS ---
 
 resource secretAppId 'Microsoft.KeyVault/vaults/secrets@2023-02-01' = {
   parent: keyVault
@@ -206,27 +198,25 @@ resource secretLanguageEndpoint 'Microsoft.KeyVault/vaults/secrets@2023-02-01' =
   properties: { value: 'https://${languageServiceName}.cognitiveservices.azure.com/' }
 }
 
-// --- ROLLENZUWEISUNGEN FÜR MANAGED IDENTITY ---
+// --- ROLE ASSIGNMENTS WITH NEW UNIQUE NAMES ---
+var roleDefId = 'a97b65f3-24c7-4388-baec-2e87135dc908'
 
-// Rolle: Cognitive Services User (ID: a97b65f3-24c7-4388-baec-2e87135dc908)
-var cognitiveServicesUserRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'a97b65f3-24c7-4388-baec-2e87135dc908')
-
-resource speechRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(speechService.id, webApp.id, cognitiveServicesUserRoleDefinitionId)
+resource speechAuth 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(speechService.id, webApp.id, roleDefId, 'v2') // 'v2' forces a new unique name
   scope: speechService
   properties: {
     principalId: webApp.identity.principalId
-    roleDefinitionId: cognitiveServicesUserRoleDefinitionId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleDefId)
     principalType: 'ServicePrincipal'
   }
 }
 
-resource languageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(languageService.id, webApp.id, cognitiveServicesUserRoleDefinitionId)
+resource languageAuth 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(languageService.id, webApp.id, roleDefId, 'v2') // 'v2' forces a new unique name
   scope: languageService
   properties: {
     principalId: webApp.identity.principalId
-    roleDefinitionId: cognitiveServicesUserRoleDefinitionId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleDefId)
     principalType: 'ServicePrincipal'
   }
 }
