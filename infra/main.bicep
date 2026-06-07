@@ -36,7 +36,7 @@ resource webApp 'Microsoft.Web/sites@2022-03-01' = {
     serverFarmId: appServicePlan.id
     siteConfig: {
       linuxFxVersion: 'PYTHON|3.11'
-      appCommandLine: 'python -m uvicorn app.main:app --host 0.0.0.0 --port 8000'
+      appCommandLine: 'python -m pip install --upgrade pip && python -m pip install -r requirements.txt && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000'
       alwaysOn: true
       appSettings: [
         {
