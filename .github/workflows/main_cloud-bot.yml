@@ -55,7 +55,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Zip artifact
-        run: zip release.zip ./* -r --exclude ".git/*" --exclude "venv/*" --exclude "azure-cli-env/*" --exclude "infra/*"
+        run: zip -r release.zip . -x "*.git*" -x "venv/*" -x "azure-cli-env/*" -x "infra/*"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
