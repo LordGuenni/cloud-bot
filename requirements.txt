@@ -7,4 +7,4 @@ azure-cosmos==4.9.0
 botbuilder-core==4.16.1
 botbuilder-dialogs==4.16.1
 botbuilder-integration-aiohttp==4.16.1
-aiohttp==3.10.11
+# aiohttp dependency is managed by botbuilder-integration-aiohttp (requires ==3.9.5)
