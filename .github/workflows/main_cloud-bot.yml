@@ -40,24 +40,9 @@ jobs:
       webAppName: ${{ steps.deploy.outputs.webAppName }}
       keyVaultName: ${{ steps.deploy.outputs.keyVaultName }}
 
-  secrets_sync:
-    runs-on: ubuntu-latest
-    needs: infrastructure
-    steps:
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Sync External Secrets to Key Vault
-        run: |
-          # Nur noch die Language-Secrets, da diese manuell konfiguriert wurden
-          az keyvault secret set --vault-name ${{ needs.infrastructure.outputs.keyVaultName }} --name "language-key" --value "${{ secrets.LANGUAGE_KEY }}"
-          az keyvault secret set --vault-name ${{ needs.infrastructure.outputs.keyVaultName }} --name "language-endpoint" --value "${{ secrets.LANGUAGE_ENDPOINT }}"
-
   build:
     runs-on: ubuntu-latest
-    needs: [infrastructure, secrets_sync]
+    needs: infrastructure
     steps:
       - uses: actions/checkout@v6
 

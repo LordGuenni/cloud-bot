@@ -14,6 +14,7 @@ param microsoftAppPassword string
 var kvName = 'kv-${uniqueString(resourceGroup().id, botName)}'
 var cosmosDbName = '${botName}-db'
 var speechServiceName = '${botName}-speech'
+var languageServiceName = '${botName}-language'
 
 // 1. App Service Plan
 resource appServicePlan 'Microsoft.Web/serverfarms@2022-03-01' = {
@@ -104,7 +105,19 @@ resource speechService 'Microsoft.CognitiveServices/accounts@2023-05-01' = {
   }
 }
 
-// 6. Bot Service
+// 6. Language Service (New)
+resource languageService 'Microsoft.CognitiveServices/accounts@2023-05-01' = {
+  name: languageServiceName
+  location: location
+  kind: 'TextAnalytics'
+  sku: { name: 'F0' }
+  properties: {
+    customSubDomainName: languageServiceName
+    publicNetworkAccess: 'Enabled'
+  }
+}
+
+// 7. Bot Service
 resource botService 'Microsoft.BotService/botServices@2023-09-15-preview' = {
   name: botName
   location: 'global'
@@ -168,6 +181,18 @@ resource secretSpeechRegion 'Microsoft.KeyVault/vaults/secrets@2023-02-01' = {
   parent: keyVault
   name: 'speech-region'
   properties: { value: location }
+}
+
+resource secretLanguageKey 'Microsoft.KeyVault/vaults/secrets@2023-02-01' = {
+  parent: keyVault
+  name: 'language-key'
+  properties: { value: languageService.listKeys().key1 }
+}
+
+resource secretLanguageEndpoint 'Microsoft.KeyVault/vaults/secrets@2023-02-01' = {
+  parent: keyVault
+  name: 'language-endpoint'
+  properties: { value: 'https://${languageServiceName}.cognitiveservices.azure.com/' }
 }
 
 output webAppName string = webApp.name
