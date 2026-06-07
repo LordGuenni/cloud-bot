@@ -11,36 +11,33 @@ param microsoftAppId string
 @secure()
 param microsoftAppPassword string
 
+var kvName = 'kv-${uniqueString(resourceGroup().id, botName)}'
+var cosmosDbName = '${botName}-db'
+var speechServiceName = '${botName}-speech'
+
 // 1. App Service Plan
 resource appServicePlan 'Microsoft.Web/serverfarms@2022-03-01' = {
   name: '${botName}-plan'
   location: location
-  sku: {
-    name: 'F1'
-  }
+  sku: { name: 'F1' }
   kind: 'linux'
-  properties: {
-    reserved: true
-  }
+  properties: { reserved: true }
 }
 
-// 2. Web App
+// 2. Web App with Managed Identity
 resource webApp 'Microsoft.Web/sites@2022-03-01' = {
   name: botName
   location: location
+  identity: { type: 'SystemAssigned' }
   properties: {
     serverFarmId: appServicePlan.id
     siteConfig: {
       linuxFxVersion: 'PYTHON|3.11'
-      appCommandLine: 'uvicorn app.main:app --host 0.0.0.0 --port 8000'
+      appCommandLine: 'export PYTHONPATH=$PYTHONPATH:. && uvicorn app.main:app --host 0.0.0.0 --port 8000'
       appSettings: [
         {
-          name: 'MicrosoftAppId'
-          value: microsoftAppId
-        }
-        {
-          name: 'MicrosoftAppPassword'
-          value: microsoftAppPassword
+          name: 'KEY_VAULT_URI'
+          value: 'https://${kvName}${az.environment().suffixes.keyvaultDns}/'
         }
         {
           name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
@@ -51,14 +48,68 @@ resource webApp 'Microsoft.Web/sites@2022-03-01' = {
   }
 }
 
-// 3. Azure Bot Service
+// 3. Key Vault with Access Policy
+resource keyVault 'Microsoft.KeyVault/vaults@2023-02-01' = {
+  name: kvName
+  location: location
+  properties: {
+    sku: { family: 'A', name: 'standard' }
+    tenantId: subscription().tenantId
+    accessPolicies: [
+      {
+        tenantId: subscription().tenantId
+        objectId: webApp.identity.principalId
+        permissions: { secrets: [ 'get', 'list', 'set' ] }
+      }
+    ]
+  }
+}
+
+// 4. Cosmos DB Account
+resource cosmosDbAccount 'Microsoft.DocumentDB/databaseAccounts@2023-04-15' = {
+  name: cosmosDbName
+  location: location
+  properties: {
+    databaseAccountOfferType: 'Standard'
+    locations: [ { locationName: location, failoverPriority: 0 } ]
+  }
+}
+
+resource sqlDatabase 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2023-04-15' = {
+  parent: cosmosDbAccount
+  name: 'BotDatabase'
+  properties: { resource: { id: 'BotDatabase' } }
+}
+
+resource sqlContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: sqlDatabase
+  name: 'Users'
+  properties: {
+    resource: {
+      id: 'Users'
+      partitionKey: { paths: [ '/email' ], kind: 'Hash' }
+    }
+  }
+}
+
+// 5. Speech Service
+resource speechService 'Microsoft.CognitiveServices/accounts@2023-05-01' = {
+  name: speechServiceName
+  location: location
+  kind: 'SpeechServices'
+  sku: { name: 'F0' }
+  properties: {
+    customSubDomainName: speechServiceName
+    publicNetworkAccess: 'Enabled'
+  }
+}
+
+// 6. Bot Service
 resource botService 'Microsoft.BotService/botServices@2023-09-15-preview' = {
   name: botName
   location: 'global'
   kind: 'azurebot'
-  sku: {
-    name: 'F0'
-  }
+  sku: { name: 'F0' }
   properties: {
     displayName: 'Registration Bot'
     endpoint: 'https://${webApp.properties.defaultHostName}/api/messages'
@@ -69,20 +120,55 @@ resource botService 'Microsoft.BotService/botServices@2023-09-15-preview' = {
   }
 }
 
+// --- AUTOMATISCHE SECRETS IM KEY VAULT ---
 
-// 4. Cosmos DB
-resource cosmosDbAccount 'Microsoft.DocumentDB/databaseAccounts@2023-04-15' = {
-  name: '${botName}-db'
-  location: location
-  properties: {
-    databaseAccountOfferType: 'Standard'
-    locations: [
-      {
-        locationName: location
-        failoverPriority: 0
-      }
-    ]
-  }
+resource secretAppId 'Microsoft.KeyVault/vaults/secrets@2023-02-01' = {
+  parent: keyVault
+  name: 'microsoft-app-id'
+  properties: { value: microsoftAppId }
+}
+
+resource secretAppPassword 'Microsoft.KeyVault/vaults/secrets@2023-02-01' = {
+  parent: keyVault
+  name: 'microsoft-app-password'
+  properties: { value: microsoftAppPassword }
+}
+
+resource secretCosmosEndpoint 'Microsoft.KeyVault/vaults/secrets@2023-02-01' = {
+  parent: keyVault
+  name: 'cosmos-endpoint'
+  properties: { value: cosmosDbAccount.properties.documentEndpoint }
+}
+
+resource secretCosmosKey 'Microsoft.KeyVault/vaults/secrets@2023-02-01' = {
+  parent: keyVault
+  name: 'cosmos-key'
+  properties: { value: cosmosDbAccount.listKeys().primaryMasterKey }
+}
+
+resource secretCosmosDb 'Microsoft.KeyVault/vaults/secrets@2023-02-01' = {
+  parent: keyVault
+  name: 'cosmos-database'
+  properties: { value: 'BotDatabase' }
+}
+
+resource secretCosmosContainer 'Microsoft.KeyVault/vaults/secrets@2023-02-01' = {
+  parent: keyVault
+  name: 'cosmos-container'
+  properties: { value: 'Users' }
+}
+
+resource secretSpeechKey 'Microsoft.KeyVault/vaults/secrets@2023-02-01' = {
+  parent: keyVault
+  name: 'speech-key'
+  properties: { value: speechService.listKeys().key1 }
+}
+
+resource secretSpeechRegion 'Microsoft.KeyVault/vaults/secrets@2023-02-01' = {
+  parent: keyVault
+  name: 'speech-region'
+  properties: { value: location }
 }
 
 output webAppName string = webApp.name
+output keyVaultName string = keyVault.name
