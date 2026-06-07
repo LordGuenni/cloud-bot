@@ -26,6 +26,7 @@ from .validation import (
     validate_phone,
     validate_postal_code,
     validate_street,
+    validate_postal_country_consistency,
 )
 
 
@@ -62,95 +63,171 @@ class RegistrationDialog(ComponentDialog):
         self.initial_dialog_id = "WaterfallDialog"
 
     async def name_step(self, step_context: WaterfallStepContext) -> DialogTurnResult:
+        # Check if we should jump ahead (loop-back from later steps)
+        if isinstance(step_context.options, dict) and step_context.options.get("step_index", 0) > 0:
+            return await step_context.next(None)
+
+        user_profile: UserProfile = await self.user_profile_accessor.get(
+            step_context.context, UserProfile
+        )
+
+        # Handle the very first message
+        text = step_context.context.activity.text
+        if text and not user_profile.first_name:
+            entities = self.extract_entities(text)
+            fn = entities.get("first_name")
+            ln = entities.get("last_name")
+            
+            if not fn or not ln:
+                parts = text.split()
+                if len(parts) >= 2:
+                    fn, ln = parts[0], " ".join(parts[1:])
+                else:
+                    fn, ln = text, "Unknown"
+            
+            try:
+                user_profile.first_name = validate_first_name(fn)
+                user_profile.last_name = validate_last_name(ln)
+                return await step_context.next(None)
+            except ValueError as exc:
+                await step_context.context.send_activity(MessageFactory.text(str(exc)))
+
         return await step_context.prompt(
             "TextPrompt",
-            PromptOptions(
-                prompt=MessageFactory.text(
-                    "Willkommen! Ich lege mit dir einen neuen Account an. Wie lauten dein Vor- und Nachname?"
-                )
-            ),
+            PromptOptions(prompt=MessageFactory.text("Willkommen! Wie lauten dein Vor- und Nachname?"))
         )
 
     async def birthdate_step(self, step_context: WaterfallStepContext) -> DialogTurnResult:
-        text = step_context.result
-        entities = self.extract_entities(text)
-        
+        # Check if we should jump ahead
+        if isinstance(step_context.options, dict) and step_context.options.get("step_index", 1) > 1:
+            return await step_context.next(None)
+
         user_profile: UserProfile = await self.user_profile_accessor.get(
             step_context.context, UserProfile
         )
-        
-        user_profile.first_name = entities.get("first_name")
-        user_profile.last_name = entities.get("last_name")
 
-        # Fallback if NER failed to split names
-        if not user_profile.first_name or not user_profile.last_name:
-            parts = text.split()
-            if len(parts) >= 2:
-                user_profile.first_name = parts[0]
-                user_profile.last_name = " ".join(parts[1:])
-            else:
-                user_profile.first_name = text
-                user_profile.last_name = "Unknown"
+        # Process name from prompt if not set
+        if step_context.result and not user_profile.first_name:
+            try:
+                entities = self.extract_entities(step_context.result)
+                fn = entities.get("first_name")
+                ln = entities.get("last_name")
+                if not fn or not ln:
+                    parts = step_context.result.split()
+                    fn, ln = (parts[0], " ".join(parts[1:])) if len(parts) >= 2 else (step_context.result, "Unknown")
+                user_profile.first_name = validate_first_name(fn)
+                user_profile.last_name = validate_last_name(ln)
+            except ValueError as exc:
+                await step_context.context.send_activity(MessageFactory.text(str(exc)))
+                return await step_context.replace_dialog(self.id, {"step_index": 0})
 
-        return await step_context.prompt(
-            "TextPrompt",
-            PromptOptions(
-                prompt=MessageFactory.text("Bitte nenne dein Geburtsdatum (TT.MM.JJJJ).")
-            ),
-        )
+        if not user_profile.birthdate:
+            return await step_context.prompt(
+                "TextPrompt",
+                PromptOptions(prompt=MessageFactory.text("Bitte nenne dein Geburtsdatum (TT.MM.JJJJ)."))
+            )
+            
+        return await step_context.next(None)
 
     async def address_step(self, step_context: WaterfallStepContext) -> DialogTurnResult:
-        text = step_context.result
         user_profile: UserProfile = await self.user_profile_accessor.get(
             step_context.context, UserProfile
         )
-        
-        try:
-            user_profile.birthdate = validate_birthdate(text)
-        except ValueError as exc:
-            await step_context.context.send_activity(MessageFactory.text(str(exc)))
-            return await step_context.replace_dialog("WaterfallDialog", {"step_index": 1})
 
-        return await step_context.prompt(
-            "TextPrompt",
-            PromptOptions(
-                prompt=MessageFactory.text(
-                    "Wie lautet deine vollständige Adresse (Straße Hausnummer, PLZ Ort, Land)?"
+        # 1. Process result from birthdate_step
+        if step_context.result and not user_profile.birthdate:
+            try:
+                user_profile.birthdate = validate_birthdate(step_context.result)
+                return await step_context.prompt(
+                    "TextPrompt",
+                    PromptOptions(prompt=MessageFactory.text("Wie lautet deine vollständige Adresse (Straße Hausnummer, PLZ Ort, Land)?"))
                 )
-            ),
-        )
+            except ValueError as exc:
+                await step_context.context.send_activity(MessageFactory.text(str(exc)))
+                return await step_context.replace_dialog(self.id, {"step_index": 1})
+
+        # 2. Process result from an actual address prompt
+        if step_context.result:
+            entities = self.extract_entities(step_context.result)
+            try:
+                if entities.get("street"): user_profile.street = validate_street(entities["street"])
+                if entities.get("house_number"): user_profile.house_number = validate_house_number(entities["house_number"])
+                if entities.get("postal_code"): user_profile.postal_code = validate_postal_code(entities["postal_code"])
+                if entities.get("city"): user_profile.city = validate_city(entities["city"])
+                if entities.get("country"): user_profile.country = validate_country(entities["country"])
+                
+                # Check consistency
+                validate_postal_country_consistency(user_profile.postal_code, user_profile.country)
+            except ValueError as exc:
+                await step_context.context.send_activity(MessageFactory.text(f"Hinweis: {exc}"))
+
+        # 3. Slot-filling check
+        missing = []
+        if not user_profile.street or not user_profile.house_number: missing.append("Straße/Hausnummer")
+        if not user_profile.postal_code: missing.append("PLZ")
+        if not user_profile.city: missing.append("Ort")
+        if not user_profile.country: missing.append("Land")
+
+        if not missing:
+            return await step_context.next(None)
+
+        parts = []
+        if user_profile.street: 
+            parts.append(f"{user_profile.street} {user_profile.house_number or ''}".strip())
+        if user_profile.postal_code or user_profile.city:
+            parts.append(f"{user_profile.postal_code or ''} {user_profile.city or ''}".strip())
+        if user_profile.country: 
+            parts.append(user_profile.country)
+            
+        current = ", ".join(p for p in parts if p)
+        msg = f"Ich habe bereits: {current}. Es fehlt noch: {', '.join(missing)}."
+        return await step_context.prompt("TextPrompt", PromptOptions(prompt=MessageFactory.text(msg)))
 
     async def contact_step(self, step_context: WaterfallStepContext) -> DialogTurnResult:
-        text = step_context.result
-        entities = self.extract_entities(text)
         user_profile: UserProfile = await self.user_profile_accessor.get(
             step_context.context, UserProfile
         )
-        
-        user_profile.street = entities.get("street")
-        user_profile.house_number = entities.get("house_number")
-        user_profile.postal_code = entities.get("postal_code")
-        user_profile.city = entities.get("city")
-        user_profile.country = entities.get("country")
 
-        return await step_context.prompt(
-            "TextPrompt",
-            PromptOptions(
-                prompt=MessageFactory.text(
-                    "Fast geschafft. Unter welcher E-Mail-Adresse und Telefonnummer bist du erreichbar?"
-                )
-            ),
-        )
+        if step_context.result is not None and not user_profile.email:
+            entities = self.extract_entities(step_context.result)
+            try:
+                if entities.get("street"): user_profile.street = validate_street(entities["street"])
+                if entities.get("house_number"): user_profile.house_number = validate_house_number(entities["house_number"])
+                if entities.get("postal_code"): user_profile.postal_code = validate_postal_code(entities["postal_code"])
+                if entities.get("city"): user_profile.city = validate_city(entities["city"])
+                if entities.get("country"): user_profile.country = validate_country(entities["country"])
+                validate_postal_country_consistency(user_profile.postal_code, user_profile.country)
+            except ValueError:
+                pass 
+
+            if not (user_profile.street and user_profile.house_number and user_profile.postal_code and user_profile.city and user_profile.country):
+                return await step_context.replace_dialog(self.id, {"step_index": 2})
+
+        if not user_profile.email:
+            return await step_context.prompt(
+                "TextPrompt",
+                PromptOptions(prompt=MessageFactory.text("Unter welcher E-Mail-Adresse und Telefonnummer (optional) bist du erreichbar?"))
+            )
+
+        return await step_context.next(None)
 
     async def summary_step(self, step_context: WaterfallStepContext) -> DialogTurnResult:
-        text = step_context.result
-        entities = self.extract_entities(text)
         user_profile: UserProfile = await self.user_profile_accessor.get(
             step_context.context, UserProfile
         )
         
-        user_profile.email = entities.get("email") or text
-        user_profile.phone = entities.get("phone")
+        if step_context.result and not user_profile.email:
+            try:
+                entities = self.extract_entities(step_context.result)
+                email_candidate = entities.get("email") or step_context.result
+                user_profile.email = validate_email(email_candidate)
+                
+                phone_candidate = entities.get("phone")
+                if phone_candidate:
+                    user_profile.phone = validate_phone(phone_candidate)
+            except ValueError as exc:
+                await step_context.context.send_activity(MessageFactory.text(str(exc)))
+                return await step_context.replace_dialog(self.id, {"step_index": 3})
 
         summary = (
             f"Vielen Dank. Ich fasse zusammen:\n"
@@ -158,17 +235,21 @@ class RegistrationDialog(ComponentDialog):
             f"- Geburtsdatum: {user_profile.birthdate}\n"
             f"- Adresse: {user_profile.street} {user_profile.house_number}, {user_profile.postal_code} {user_profile.city}, {user_profile.country}\n"
             f"- E-Mail: {user_profile.email}\n"
-            f"- Telefon: {user_profile.phone}\n\n"
-            "Sind diese Daten korrekt?"
+            f"- Telefon: {user_profile.phone or 'Nicht angegeben'}\n\n"
+            "Sind diese Daten korrekt? (Ja / Nein)"
         )
 
         return await step_context.prompt(
-            "ConfirmPrompt",
-            PromptOptions(prompt=MessageFactory.text(summary)),
+            "TextPrompt", 
+            PromptOptions(prompt=MessageFactory.text(summary))
         )
 
     async def final_step(self, step_context: WaterfallStepContext) -> DialogTurnResult:
-        if step_context.result:
+        # Clean the input: "Ja." -> "ja"
+        text = step_context.result.lower().strip().rstrip("., ") if isinstance(step_context.result, str) else ""
+        confirmed = text in ["ja", "yes", "stimmt", "korrekt", "ok", "richtig"]
+        
+        if confirmed:
             user_profile: UserProfile = await self.user_profile_accessor.get(
                 step_context.context, UserProfile
             )
@@ -191,7 +272,8 @@ class RegistrationDialog(ComponentDialog):
             )
         else:
             await step_context.context.send_activity(
-                MessageFactory.text("Oh, dann müssen wir wohl von vorne anfangen.")
+                MessageFactory.text(f"Du hast '{step_context.result}' gesagt. Dann fangen wir lieber nochmal von vorne an.")
             )
+            return await step_context.replace_dialog(self.id)
 
         return await step_context.end_dialog()

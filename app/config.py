@@ -60,9 +60,26 @@ class KeyVaultSecretProvider:
     def get_secret(self, secret_name: str) -> str:
         if not secret_name:
             return ""
+            
+        # 1. Try Environment Variable first (Local Override)
+        env_key = secret_name.upper().replace("-", "_")
+        env_val = os.environ.get(env_key, "")
+        if env_val:
+            print(f"INFO: Using environment variable override for '{secret_name}'")
+            return env_val.strip().strip('"').strip("'")
+
+        # 2. Try Key Vault
         try:
             value = self.client.get_secret(secret_name).value
-            return value.strip().strip('"').strip("'") if value else ""
-        except Exception:
-            # Fallback to env var if secret not in vault or vault access fails
-            return os.environ.get(secret_name.upper().replace("-", "_"), "")
+            if value:
+                return value.strip().strip('"').strip("'")
+            return ""
+        except Exception as exc:
+            # Check if it's a "Secret not found" vs "Authentication error"
+            error_msg = str(exc)
+            if "not found" in error_msg.lower():
+                print(f"WARNING: Secret '{secret_name}' not found in Key Vault.")
+            else:
+                print(f"ERROR: Failed to retrieve secret '{secret_name}' from Key Vault: {exc}")
+            
+            return ""

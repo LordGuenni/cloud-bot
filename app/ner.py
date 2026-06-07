@@ -24,12 +24,10 @@ class AzureNerExtractor:
         if self.key:
             headers["Ocp-Apim-Subscription-Key"] = self.key
         else:
-            # Use Managed Identity token if no key is provided
             token_obj = self.credential.get_token("https://cognitiveservices.azure.com/.default")
             headers["Authorization"] = f"Bearer {token_obj.token}"
-
-        payload = {
-            "kind": "EntityRecognition",
+        
+        base_input = {
             "analysisInput": {
                 "documents": [{"id": "1", "text": text, "language": "de"}]
             }
@@ -37,20 +35,19 @@ class AzureNerExtractor:
 
         try:
             with httpx.Client() as client:
-                response = client.post(url, headers=headers, json=payload, timeout=10.0)
+                # 1. Primary Entity Recognition
+                ner_payload = {**base_input, "kind": "EntityRecognition"}
+                response = client.post(url, headers=headers, json=ner_payload, timeout=10.0)
                 response.raise_for_status()
                 data = response.json()
                 
-            # Fallback for PII
-            pii_payload = dict(payload)
-            pii_payload["kind"] = "PiiEntityRecognition"
-            with httpx.Client() as client:
+                # 2. PII Entity Recognition
+                pii_payload = {**base_input, "kind": "PiiEntityRecognition"}
                 pii_resp = client.post(url, headers=headers, json=pii_payload, timeout=10.0)
                 pii_resp.raise_for_status()
                 pii_data = pii_resp.json()
         except Exception as exc:
             logger.error(f"Azure REST API Fehler: {exc}")
-            # This is the NEW error format that MUST show up if the code is running
             raise RuntimeError(f"REST_API_ERROR: {exc}")
 
         values: dict[str, str] = {}

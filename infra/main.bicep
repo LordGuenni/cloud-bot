@@ -37,16 +37,12 @@ resource webApp 'Microsoft.Web/sites@2022-03-01' = {
     serverFarmId: appServicePlan.id
     siteConfig: {
       linuxFxVersion: 'PYTHON|3.11'
-      appCommandLine: 'python -m uvicorn app.main:app --host 0.0.0.0 --port 8000'
+      appCommandLine: 'gunicorn -w 4 -k uvicorn.workers.UvicornWorker app.main:app'
       alwaysOn: true
       appSettings: [
         {
           name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
-          value: 'false'
-        }
-        {
-          name: 'PYTHONPATH'
-          value: '/home/site/wwwroot/bundled_dep/lib/python3.11/site-packages'
+          value: 'true'
         }
         {
           name: 'WEBSITES_PORT'

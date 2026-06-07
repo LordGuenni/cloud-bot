@@ -5,6 +5,7 @@ const chat = document.getElementById("chat");
 const form = document.getElementById("chat-form");
 const input = document.getElementById("message");
 const voiceBtn = document.getElementById("voice-btn");
+const submitBtn = form.querySelector('button[type="submit"]');
 
 function addMessage(role, text) {
   const el = document.createElement("div");
@@ -12,6 +13,21 @@ function addMessage(role, text) {
   el.textContent = text;
   chat.appendChild(el);
   chat.scrollTop = chat.scrollHeight;
+}
+
+function showTypingIndicator() {
+  const el = document.createElement("div");
+  el.className = "typing";
+  el.id = "typing-indicator";
+  el.innerHTML = '<div class="dot"></div><div class="dot"></div><div class="dot"></div>';
+  chat.appendChild(el);
+  chat.scrollTop = chat.scrollHeight;
+  return el;
+}
+
+function setButtonsEnabled(enabled) {
+  submitBtn.disabled = !enabled;
+  voiceBtn.disabled = !enabled;
 }
 
 async function getSpeechAuth() {
@@ -48,33 +64,51 @@ async function speak(text) {
 }
 
 async function startSession() {
-  const response = await fetch("/api/chat/start", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" }
-  });
-  const payload = await response.json();
-  sessionId = payload.session_id;
-  addMessage("bot", payload.reply);
-  await speak(payload.reply);
+  const indicator = showTypingIndicator();
+  try {
+    const response = await fetch("/api/chat/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" }
+    });
+    const payload = await response.json();
+    sessionId = payload.session_id;
+    indicator.remove();
+    addMessage("bot", payload.reply);
+    await speak(payload.reply);
+  } catch (err) {
+    indicator.remove();
+    throw err;
+  }
 }
 
 async function sendMessage(message) {
   addMessage("user", message);
+  setButtonsEnabled(false);
+  const indicator = showTypingIndicator();
 
-  const response = await fetch("/api/chat/message", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ session_id: sessionId, message })
-  });
+  try {
+    const response = await fetch("/api/chat/message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId, message })
+    });
 
-  if (!response.ok) {
-    addMessage("bot", "Error while sending the message.");
-    return;
+    indicator.remove();
+    setButtonsEnabled(true);
+
+    if (!response.ok) {
+      addMessage("bot", "Error while sending the message.");
+      return;
+    }
+
+    const payload = await response.json();
+    addMessage("bot", payload.reply);
+    await speak(payload.reply);
+  } catch (err) {
+    indicator.remove();
+    setButtonsEnabled(true);
+    addMessage("bot", "Network error.");
   }
-
-  const payload = await response.json();
-  addMessage("bot", payload.reply);
-  await speak(payload.reply);
 }
 
 form.addEventListener("submit", async (event) => {

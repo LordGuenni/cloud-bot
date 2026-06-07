@@ -50,17 +50,26 @@ app_password = secret_provider.get_secret(secret_names.get("microsoft_app_passwo
 adapter_settings = BotFrameworkAdapterSettings(app_id, app_password)
 adapter = BotFrameworkAdapter(adapter_settings)
 
+# Bridge Adapter for Local Web UI (unauthenticated)
+bridge_adapter = BotFrameworkAdapter(BotFrameworkAdapterSettings("", ""))
+
 # Storage & State
 storage = MemoryStorage()
 user_state = UserState(storage)
 conversation_state = ConversationState(storage)
 
 cosmos_endpoint = secret_provider.get_secret(secret_names["cosmos_endpoint"])
+if not cosmos_endpoint:
+    raise RuntimeError(f"Konnte 'cosmos_endpoint' nicht aus Key Vault ({app_config.key_vault_uri}) laden.")
+
 cosmos_key = secret_provider.get_secret(secret_names["cosmos_key"])
 cosmos_database = secret_provider.get_secret(secret_names["cosmos_database"])
 cosmos_container = secret_provider.get_secret(secret_names["cosmos_container"])
+
 language_endpoint = secret_provider.get_secret(secret_names["language_endpoint"])
 language_key = secret_provider.get_secret(secret_names["language_key"])
+if not language_key:
+    raise RuntimeError(f"Konnte 'language_key' nicht aus Key Vault ({app_config.key_vault_uri}) laden.")
 
 account_store = CosmosAccountStore(
     endpoint=cosmos_endpoint,
@@ -110,12 +119,16 @@ async def messages(request: Request) -> Response:
         raise exc
 
 
-# Bridge Endpoints for Web UI Prototype
 @app.post("/api/chat/start")
 async def start_session() -> dict[str, str]:
+    # Clear existing state directly from storage to ensure a fresh start
+    # MemoryStorage stores everything in its .memory attribute
+    if hasattr(storage, "memory"):
+        storage.memory.clear()
+    
     return {
         "session_id": "web-session",
-        "reply": "Willkommen! (v2.0-SDK) Ich lege mit dir einen neuen Account an. Wie lauten dein Vor- und Nachname?",
+        "reply": "Willkommen! Ich lege mit dir einen neuen Account an. Wie lauten dein Vor- und Nachname?",
         "expected_field": "first_name"
     }
 
@@ -150,16 +163,21 @@ async def chat_message(request: Request) -> dict[str, Any]:
 
     try:
         async def turn_wrapper(context):
-            original_send_activities = context.send_activities
+            # Intercept responses and prevent the adapter from trying to POST them back to a non-existent network endpoint
             async def hooked_send_activities(activities):
+                from botbuilder.schema import ResourceResponse
+                resource_responses = []
                 for act in activities:
                     if act.type == "message":
                         responses.append(act.text)
-                return await original_send_activities(activities)
+                    resource_responses.append(ResourceResponse(id=act.id or "web-res"))
+                return resource_responses
+            
             context.send_activities = hooked_send_activities
             await bot.on_turn(context)
 
-        await adapter.process_activity(activity, "", turn_wrapper)
+        # Use bridge_adapter (no auth) instead of the main adapter
+        await bridge_adapter.process_activity(activity, "", turn_wrapper)
         reply_text = " ".join(responses) if responses else "Ich habe dich leider nicht verstanden."
         
         return {
@@ -168,7 +186,6 @@ async def chat_message(request: Request) -> dict[str, Any]:
             "completed": "gespeichert" in reply_text.lower()
         }
     except Exception as exc:
-        import traceback
         full_error = f"{str(exc)} | Endpunkt: {language_endpoint}"
         return {
             "session_id": "web-session",

@@ -32,6 +32,13 @@ class RegistrationBot(ActivityHandler):
         await self.user_state.save_changes(turn_context)
 
     async def on_message_activity(self, turn_context: TurnContext) -> None:
+        if turn_context.activity.text:
+            text = turn_context.activity.text.lower().strip()
+            if text in ["neustart", "restart", "zurücksetzen"]:
+                await self.conversation_state.delete(turn_context)
+                await self.user_state.delete(turn_context)
+                await turn_context.send_activity("Alles klar, wir fangen von vorne an.")
+                
         await DialogExtensions.run_dialog(
             self.dialog,
             turn_context,
