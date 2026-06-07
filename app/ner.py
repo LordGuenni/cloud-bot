@@ -26,13 +26,26 @@ class AzureNerExtractor:
         )
 
     def extract(self, text: str) -> dict[str, str]:
+        if not self.client:
+            raise RuntimeError("Azure AI Language Client ist nicht initialisiert.")
+            
         try:
             docs = [text]
-            general = self.client.recognize_entities(docs)[0]
-            pii = self.client.recognize_pii_entities(docs)[0]
+            # Wir rufen nur eine einfache Methode auf, um die Auth zu testen
+            response = self.client.recognize_entities(docs)
+            if not response or len(response) == 0:
+                return {}
+            general = response[0]
+            
+            # PII separat, falls es dort knallt
+            pii_response = self.client.recognize_pii_entities(docs)
+            pii = pii_response[0] if pii_response else None
         except Exception as exc:
-            # Re-raise with more context
-            raise RuntimeError(f"Azure AI Language Fehler (Identity check): {str(exc)}") from exc
+            # Hier fangen wir den exakten Fehler vom Azure SDK ab
+            error_msg = str(exc)
+            if "Authorization" in error_msg:
+                error_msg += " | Tipp: Prüfe ob Managed Identity aktiv ist und die Rolle 'Cognitive Services User' hat."
+            raise RuntimeError(f"Azure SDK Fehler: {error_msg}") from exc
 
         if general.is_error:
             raise RuntimeError(f"Azure NER error: {general.error}")

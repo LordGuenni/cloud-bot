@@ -114,7 +114,7 @@ async def messages(request: Request) -> Response:
 async def start_session() -> dict[str, str]:
     return {
         "session_id": "web-session",
-        "reply": "Willkommen! Ich lege mit dir einen neuen Account an. Wie lauten dein Vor- und Nachname?",
+        "reply": "Willkommen! (v2.0-SDK) Ich lege mit dir einen neuen Account an. Wie lauten dein Vor- und Nachname?",
         "expected_field": "first_name"
     }
 
@@ -148,7 +148,6 @@ async def chat_message(request: Request) -> dict[str, Any]:
     )
 
     try:
-        # Correct way to handle logic: wrap the turn handler
         async def turn_wrapper(context):
             original_send_activities = context.send_activities
             async def hooked_send_activities(activities):
@@ -161,15 +160,18 @@ async def chat_message(request: Request) -> dict[str, Any]:
 
         await adapter.process_activity(activity, "", turn_wrapper)
         reply_text = " ".join(responses) if responses else "Ich habe dich leider nicht verstanden."
+        
         return {
             "session_id": "web-session",
             "reply": reply_text,
             "completed": "gespeichert" in reply_text.lower()
         }
     except Exception as exc:
+        import traceback
+        full_error = f"{str(exc)} | Endpunkt: {language_endpoint}"
         return {
             "session_id": "web-session",
-            "reply": f"Fehler: {str(exc)}",
+            "reply": f"SYSTEM-DIAGNOSE: {full_error}",
             "completed": False
         }
 
