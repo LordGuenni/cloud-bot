@@ -60,6 +60,7 @@ cosmos_key = secret_provider.get_secret(secret_names["cosmos_key"])
 cosmos_database = secret_provider.get_secret(secret_names["cosmos_database"])
 cosmos_container = secret_provider.get_secret(secret_names["cosmos_container"])
 language_endpoint = secret_provider.get_secret(secret_names["language_endpoint"])
+language_key = secret_provider.get_secret(secret_names["language_key"])
 
 account_store = CosmosAccountStore(
     endpoint=cosmos_endpoint,
@@ -72,7 +73,7 @@ speech_service = SpeechTokenService(
     speech_key_secret_name=secret_names["speech_key"],
     speech_region_secret_name=secret_names["speech_region"],
 )
-ner_extractor = AzureNerExtractor(endpoint=language_endpoint)
+ner_extractor = AzureNerExtractor(endpoint=language_endpoint, key=language_key)
 
 
 registration_dialog = RegistrationDialog(
