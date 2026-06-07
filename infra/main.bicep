@@ -46,7 +46,7 @@ resource webApp 'Microsoft.Web/sites@2022-03-01' = {
         }
         {
           name: 'PYTHONPATH'
-          value: '/home/site/wwwroot/antenv/lib/python3.11/site-packages'
+          value: '/home/site/wwwroot/bundled_dep/lib/python3.11/site-packages'
         }
         {
           name: 'WEBSITES_PORT'
