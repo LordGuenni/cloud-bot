@@ -214,7 +214,7 @@ resource secretLanguageEndpoint 'Microsoft.KeyVault/vaults/secrets@2023-02-01' =
 var roleDefId = 'a97b65f3-24c7-4388-baec-2e87135dc908'
 
 resource speechAuth 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(speechService.id, webApp.id, roleDefId, 'v2') // 'v2' forces a new unique name
+  name: guid(speechService.id, webApp.id, roleDefId, 'v3') // 'v3' forces a new unique name
   scope: speechService
   properties: {
     principalId: webApp.identity.principalId
@@ -224,7 +224,7 @@ resource speechAuth 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 }
 
 resource languageAuth 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(languageService.id, webApp.id, roleDefId, 'v2') // 'v2' forces a new unique name
+  name: guid(languageService.id, webApp.id, roleDefId, 'v3') // 'v3' forces a new unique name
   scope: languageService
   properties: {
     principalId: webApp.identity.principalId
