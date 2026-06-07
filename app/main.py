@@ -122,14 +122,45 @@ async def start_session() -> dict[str, str]:
 @app.post("/api/chat/message")
 async def chat_message(request: Request) -> dict[str, Any]:
     body = await request.json()
-    message = body.get("message", "")
-    
-    # Simple dummy bridge (Bot Framework should be used via /api/messages)
-    return {
-        "session_id": "web-session",
-        "reply": "Nachricht empfangen. (Bitte nutze den /api/messages Endpunkt für die volle Bot Framework Erfahrung)",
-        "completed": False
-    }
+    user_text = body.get("message", "")
+    responses = []
+
+    # Middleware-like function to capture bot responses
+    async def capture_responses(context, next_turn):
+        original_send_activities = context.send_activities
+        async def hooked_send_activities(activities):
+            for activity in activities:
+                if activity.type == "message":
+                    responses.append(activity.text)
+            return await original_send_activities(activities)
+        context.send_activities = hooked_send_activities
+        await next_turn()
+
+    from botbuilder.schema import ActivityTypes, ChannelAccount
+    activity = Activity(
+        type=ActivityTypes.message,
+        text=user_text,
+        from_property=ChannelAccount(id="web-user", name="User"),
+        recipient=ChannelAccount(id="bot", name="Bot"),
+        conversation=ChannelAccount(id="web-conv"),
+        service_url="http://localhost",
+        channel_id="emulator"
+    )
+
+    try:
+        await adapter.process_activity(activity, "", bot.on_turn, capture_responses)
+        reply_text = " ".join(responses) if responses else "Ich habe dich leider nicht verstanden."
+        return {
+            "session_id": "web-session",
+            "reply": reply_text,
+            "completed": "gespeichert" in reply_text.lower()
+        }
+    except Exception as exc:
+        return {
+            "session_id": "web-session",
+            "reply": f"Fehler: {str(exc)}",
+            "completed": False
+        }
 
 
 @app.get("/api/admin/accounts")
