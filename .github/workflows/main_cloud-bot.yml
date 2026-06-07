@@ -29,6 +29,7 @@ jobs:
           template-file: ./infra/main.bicep
           parameters: |
             botName: stamer-registration-bot
+            location: germanywestcentral
             microsoftAppId: ${{ secrets.MICROSOFT_APP_ID }}
             microsoftAppPassword: ${{ secrets.MICROSOFT_APP_PASSWORD }}
 
