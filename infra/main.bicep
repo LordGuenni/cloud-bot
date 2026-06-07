@@ -51,7 +51,7 @@ resource webApp 'Microsoft.Web/sites@2022-03-01' = {
 }
 
 // 3. Azure Bot Service
-resource botService 'Microsoft.BotService/botServices@2022-09-15' = {
+resource botService 'Microsoft.BotService/botServices@2023-09-15-preview' = {
   name: botName
   location: 'global'
   kind: 'azurebot'
@@ -62,10 +62,12 @@ resource botService 'Microsoft.BotService/botServices@2022-09-15' = {
     displayName: 'Registration Bot'
     endpoint: 'https://${webApp.properties.defaultHostName}/api/messages'
     msaAppId: microsoftAppId
-    msaAppType: 'MultiTenant'
+    msaAppType: 'SingleTenant'
+    msaAppTenantId: subscription().tenantId
     schemaTransformationVersion: '1.3'
   }
 }
+
 
 // 4. Cosmos DB
 resource cosmosDbAccount 'Microsoft.DocumentDB/databaseAccounts@2023-04-15' = {
