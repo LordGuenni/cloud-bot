@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- Background container in deep bunker charcoal -->
+  <rect width="32" height="32" rx="8" fill="#0b0c0e" />
+  
+  <!-- Subtle circular grid pattern lines in the background -->
+  <circle cx="16" cy="16" r="13" fill="none" stroke="#ff5500" stroke-width="0.75" stroke-dasharray="2, 2" opacity="0.3" />
+  <circle cx="16" cy="16" r="10" fill="none" stroke="#ff5500" stroke-width="0.5" opacity="0.15" />
+  
+  <!-- Outer diamond frame (Warmind nodes) -->
+  <polygon points="16,3 29,16 16,29 3,16" fill="none" stroke="#ff2200" stroke-width="0.75" opacity="0.4" />
+
+  <!-- Geometric Warsat / Rasputin Logo Wing Polygons -->
+  <!-- Top-Right Facet -->
+  <polygon points="16,5 25,14 16,12" fill="#ff5500" />
+  <!-- Top-Left Facet -->
+  <polygon points="16,5 7,14 16,12" fill="#ff7722" />
+  
+  <!-- Bottom-Right Facet -->
+  <polygon points="16,27 25,18 16,20" fill="#cc3300" />
+  <!-- Bottom-Left Facet -->
+  <polygon points="16,27 7,18 16,20" fill="#e64a00" />
+  
+  <!-- Side Connectors -->
+  <polygon points="25,14 25,18 16,20 16,12" fill="#b32400" />
+  <polygon points="7,14 7,18 16,20 16,12" fill="#ffa200" opacity="0.85" />
+  
+  <!-- Glowing central Core -->
+  <circle cx="16" cy="16" r="2" fill="#ffffff" />
+  <circle cx="16" cy="16" r="4.5" fill="none" stroke="#ff5500" stroke-width="1.2" />
+</svg>

@@ -187,3 +187,184 @@ In `config.json` müssen diese Secret-Mappings gesetzt sein:
 - `POST /api/chat/message` – Nachricht senden
 - `GET /api/admin/accounts` – erfasste Accounts anzeigen
 - `GET /api/speech/token` – Azure Speech Token für Browser-Client
+
+---
+
+## 10. Technische Dokumentation
+
+### Systemarchitektur (Architecture Diagram)
+
+Die Systemarchitektur kombiniert ein schlankes, reaktionsschnelles Frontend (Vanilla HTML, CSS, JS) mit einem robusten FastAPI-Backend, das die Dialogführung über das Bot Framework SDK steuert. 
+
+```mermaid
+graph TD
+    User([Benutzer]) <-->|Sprache / Text| FE[Frontend: Browser UI]
+    FE <-->|REST API /api/chat/message| BE[Backend: FastAPI app.main]
+    FE <-->|Speech Token / SDK| AzureSpeech[Azure Cognitive Speech Services]
+    
+    subgraph FastAPI Backend
+        BE <-->|State Manager| State[UserState / ConversationState]
+        State <-->|Pickle Files| LocalStorage[(Local FileStorage)]
+        BE <-->|NER / PII Extraction| NER[AzureNerExtractor]
+    end
+    
+    subgraph Azure Cloud Services
+        NER <-->|analyze-text API| AzureLanguage[Azure AI Language NER / PII]
+        BE <-->|Secured Secrets| KeyVault[Azure Key Vault]
+        BE <-->|Upsert / List Account| CosmosDB[(Azure Cosmos DB)]
+    end
+    
+    Credential[DefaultAzureCredential] -.->|Auth| KeyVault
+    Credential -.->|Auth| AzureLanguage
+```
+
+### Dialog- & Datenfluss (Sequence Diagram)
+
+Der Ablauf zeigt, wie eine Nachricht vom Benutzer verarbeitet wird, wie Entitäten extrahiert/validiert werden und wie die Sitzung persistent gespeichert wird:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as Benutzer
+    participant FE as Frontend (JS)
+    participant BE as FastAPI Backend
+    participant FS as FileStorage (.pkl)
+    participant NER as Azure Language (NER/PII)
+    participant DB as Cosmos DB
+
+    U->>FE: Spricht/Schreibt (z.B. "Florian Stamer")
+    FE->>BE: POST /api/chat/message {session_id, message, user_profile}
+    BE->>FS: Lade Session-Zustand (DialogStack, UserProfile)
+    BE->>BE: Falls Server leer, synchronisiere mit Client-user_profile
+    BE->>NER: Sende Text an Azure Language Service
+    NER-->>BE: Rückgabe extrahierter Entitäten (Person: Florian Stamer)
+    BE->>BE: Validiere & Aktualisiere UserProfile
+    BE->>BE: Dialog führt nächsten Schritt aus (Frage nach Geburtsdatum)
+    BE->>FS: Speichere Zustand (Pickle)
+    BE-->>FE: HTTP 200 {reply: "Danke. Bitte nenne dein Geburtsdatum.", profile}
+    FE->>FE: Aktualisiere UI & local Cache
+    FE->>U: Sprachausgabe (TTS) via Azure Speech SDK
+    
+    Note over U,DB: Dialog läuft bis zum Abschluss...
+    
+    U->>FE: Bestätigt Daten mit "Ja"
+    FE->>BE: POST /api/chat/message
+    BE->>DB: Speichere Account-Daten in Cosmos DB (PartitionKey: /email)
+    BE->>FS: Lösche/Setze UserProfile & DialogStack zurück
+    BE-->>FE: HTTP 200 {reply: "gespeichert", completed: true}
+    FE->>FE: Bereinige localStorage (Session & Cache)
+```
+
+---
+
+## 11. Azure-Umgebungs-Setup & Installationsanleitung
+
+Diese Anleitung führt Schritt für Schritt durch die Einrichtung aller erforderlichen Microsoft Azure-Ressourcen und die lokale Anbindung über den `DefaultAzureCredential`.
+
+### 1. Voraussetzungen
+- Ein aktives Azure-Konto (z. B. Azure for Students).
+- Installierte [Azure CLI](https://learn.microsoft.com/de-de/cli/azure/install-azure-cli).
+- Python 3.10+ lokal installiert.
+
+### 2. Azure-Ressourcen erstellen
+
+Führe die folgenden Schritte im Azure Portal oder über die CLI durch:
+
+#### A. Ressourcengruppe
+Erstelle eine Ressourcengruppe in einer freigegebenen Region (z. B. `germanywestcentral`):
+```bash
+az group create --name rg-cloudbot --location germanywestcentral
+```
+
+#### B. Azure Key Vault (Geheimnisspeicher)
+Erstelle einen Key Vault, um API-Keys und Verbindungsdaten sicher zu speichern:
+```bash
+az keyvault create --name kv-cloudbot-unique --resource-group rg-cloudbot --location germanywestcentral
+```
+
+#### C. Azure Cognitive Speech Services (Sprachdienst)
+Erforderlich für Speech-to-Text (STT) und Text-to-Speech (TTS) im Frontend:
+```bash
+az cognitiveservices account create --name speech-cloudbot --resource-group rg-cloudbot --kind SpeechServices --sku S0 --location germanywestcentral --yes
+```
+
+#### D. Azure AI Language Service (NER / PII Extraktion)
+Erforderlich für die Erkennung von Namen, Adressen, E-Mails und Telefonnummern:
+```bash
+az cognitiveservices account create --name lang-cloudbot --resource-group rg-cloudbot --kind TextAnalytics --sku S --location germanywestcentral --yes
+```
+
+#### E. Azure Cosmos DB (NoSQL Datenbank)
+Datenbank zur dauerhaften Speicherung der registrierten Accounts:
+1. Cosmos-Konto erstellen (SQL API):
+   ```bash
+   az cosmosdb create --name cosmos-cloudbot-unique --resource-group rg-cloudbot --locations regionName=germanywestcentral failoverPriority=0 isZoneRedundant=False
+   ```
+2. Datenbank erstellen:
+   ```bash
+   az cosmosdb sql database create --account-name cosmos-cloudbot-unique --resource-group rg-cloudbot --name botdb
+   ```
+3. Container (Tabelle) erstellen. **Wichtig:** Der Partitionsschlüssel *muss* `/email` sein:
+   ```bash
+   az cosmosdb sql container create --account-name cosmos-cloudbot-unique --resource-group rg-cloudbot --database-name botdb --name accounts --partition-key-path "/email"
+   ```
+
+---
+
+### 3. Secrets im Key Vault eintragen
+
+Lade die Schlüssel aus den erstellten Ressourcen und trage sie im Key Vault ein:
+
+```bash
+# 1. Speech Service Keys & Region
+az keyvault secret set --vault-name kv-cloudbot-unique --name speech-key --value "<SPEECH_KEY>"
+az keyvault secret set --vault-name kv-cloudbot-unique --name speech-region --value "germanywestcentral"
+
+# 2. Language Service Key & Endpoint
+az keyvault secret set --vault-name kv-cloudbot-unique --name language-key --value "<LANGUAGE_KEY>"
+az keyvault secret set --vault-name kv-cloudbot-unique --name language-endpoint --value "https://lang-cloudbot.cognitiveservices.azure.com/"
+
+# 3. Cosmos DB Credentials & Config
+az keyvault secret set --vault-name kv-cloudbot-unique --name cosmos-endpoint --value "https://cosmos-cloudbot-unique.documents.azure.com:443/"
+az keyvault secret set --vault-name kv-cloudbot-unique --name cosmos-key --value "<COSMOS_KEY>"
+az keyvault secret set --vault-name kv-cloudbot-unique --name cosmos-database --value "botdb"
+az keyvault secret set --vault-name kv-cloudbot-unique --name cosmos-container --value "accounts"
+```
+
+---
+
+### 4. Lokale Konfiguration und Authentifizierung
+
+Das Backend nutzt das Azure Identity SDK (`DefaultAzureCredential`). Dies bedeutet, dass lokal keine API-Keys im Code gespeichert werden müssen. Das Skript greift stattdessen auf das Anmeldetoken deines Azure-CLI-Clients zu.
+
+1. **Azure CLI Login**:
+   Melde dich im Terminal an. Die Anwendung übernimmt diese Identität automatisch für den Zugriff auf den Key Vault:
+   ```bash
+   az login
+   ```
+   *(Optional: Stelle sicher, dass die richtige Subscription aktiv ist mit `az account set --subscription <ID>`)*.
+
+2. **Lokale `config.json` anpassen**:
+   Erstelle eine `config.json` im Projektverzeichnis, um dem Bot mitzuteilen, unter welchen Namen die Secrets im Key Vault gespeichert sind:
+   ```json
+   {
+     "key_vault_uri": "https://kv-cloudbot-unique.vault.azure.net/",
+     "tenant_id": "common",
+     "key_vault_secret_names": {
+       "speech_key": "speech-key",
+       "speech_region": "speech-region",
+       "language_endpoint": "language-endpoint",
+       "language_key": "language-key",
+       "cosmos_endpoint": "cosmos-endpoint",
+       "cosmos_key": "cosmos-key",
+       "cosmos_database": "cosmos-database",
+       "cosmos_container": "cosmos-container"
+     }
+   }
+   ```
+
+3. **Backend-Server starten**:
+   ```bash
+   pip install -r requirements.txt
+   uvicorn app.main:app --reload
+   ```

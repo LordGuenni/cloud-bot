@@ -16,8 +16,10 @@
     <script src="https://alcdn.msauth.net/browser/2.35.0/js/msal-browser.min.js"></script>
   </head>
   <body>
+    <!-- Warmind Background Canvas -->
+    <canvas id="warmind-canvas"></canvas>
     <main class="container">
-      <h1>THB Azure Registration Bot</h1>
+      <h1><img src="/static/favicon.svg" alt="Icon" class="header-icon" /> THB Azure Registration Bot</h1>
       
       <!-- Tab Navigation -->
       <div class="tabs">
@@ -30,14 +32,51 @@
         <div id="chat" class="chat"></div>
         <form id="chat-form" class="composer">
           <input id="message" type="text" autocomplete="off" placeholder="Schreibe eine Nachricht..." />
+          <select id="voice-select" class="voice-dropdown" title="Stimme für Sprachausgabe auswählen">
+            <optgroup label="Deutschland (de-DE) - Weiblich">
+              <option value="de-DE-KatjaNeural" selected>👩 Katja (Standard)</option>
+              <option value="de-DE-AmalaNeural">👩 Amala</option>
+              <option value="de-DE-ElkeNeural">👩 Elke</option>
+              <option value="de-DE-GiselaNeural">👩 Gisela</option>
+              <option value="de-DE-KlarissaNeural">👩 Klarissa</option>
+              <option value="de-DE-LouisaNeural">👩 Louisa</option>
+              <option value="de-DE-MajaNeural">👩 Maja</option>
+              <option value="de-DE-TanjaNeural">👩 Tanja</option>
+              <option value="de-DE-SeraphinaMultilingualNeural">👩 Seraphina (Multilingual)</option>
+            </optgroup>
+            <optgroup label="Deutschland (de-DE) - Männlich">
+              <option value="de-DE-ConradNeural">👨 Conrad</option>
+              <option value="de-DE-BerndNeural">👨 Bernd</option>
+              <option value="de-DE-ChristophNeural">👨 Christoph</option>
+              <option value="de-DE-KasperNeural">👨 Kasper</option>
+              <option value="de-DE-KillianNeural">👨 Killian</option>
+              <option value="de-DE-KlausNeural">👨 Klaus</option>
+              <option value="de-DE-RalfNeural">👨 Ralf</option>
+              <option value="de-DE-FlorianMultilingualNeural">👨 Florian (Multilingual)</option>
+            </optgroup>
+            <optgroup label="Österreich (de-AT)">
+              <option value="de-AT-IngridNeural">👩 Ingrid</option>
+              <option value="de-AT-JonasNeural">👨 Jonas</option>
+            </optgroup>
+            <optgroup label="Schweiz (de-CH)">
+              <option value="de-CH-LeniNeural">👩 Leni</option>
+              <option value="de-CH-JanNeural">👨 Jan</option>
+            </optgroup>
+          </select>
           <button type="submit">Senden</button>
           <button id="voice-btn" type="button">🎤 Voice</button>
           <button id="restart-btn" type="button">🔄 Neustart</button>
         </form>
-        <p class="hint">
-          Spracheingabe/-ausgabe nutzt Azure Speech Services. Befehle: <code>restart</code>,
-          <code>ja</code>/<code>nein</code>.
-        </p>
+        <div class="chat-footer-controls">
+          <label class="auto-mic-container" title="Mikrofon nach Bot-Sprachausgabe automatisch öffnen">
+            <input type="checkbox" id="auto-mic-toggle" />
+            <span class="auto-mic-slider"></span>
+            <span class="auto-mic-text">🎙️ Auto-Mic (Mic öffnet automatisch)</span>
+          </label>
+          <p class="hint">
+            Spracheingabe/-ausgabe nutzt Azure Speech Services.
+          </p>
+        </div>
       </div>
 
       <!-- Admin View (Dashboard) -->
@@ -134,58 +173,70 @@
       <div id="details-modal" class="modal">
         <div class="modal-content">
           <span class="close-modal">&times;</span>
-          <h2>👤 Account-Details</h2>
+          <h2>👤 Account-Details & Bearbeiten</h2>
           <div class="modal-divider"></div>
-          <div class="modal-grid">
-            <div class="modal-section">
-              <h3>Persönliches</h3>
-              <div class="detail-row">
-                <span class="detail-label">Vorname:</span>
-                <span id="detail-first-name" class="detail-val">-</span>
+          <form id="edit-account-form">
+            <input type="hidden" id="edit-id" />
+            <div class="modal-grid">
+              <div class="modal-section">
+                <h3>Persönliches</h3>
+                <div class="detail-row">
+                  <span class="detail-label">Vorname:</span>
+                  <input type="text" id="edit-first-name" class="edit-input" required />
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Nachname:</span>
+                  <input type="text" id="edit-last-name" class="edit-input" required />
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Geburtsdatum:</span>
+                  <input type="text" id="edit-birthdate" class="edit-input" required />
+                </div>
               </div>
-              <div class="detail-row">
-                <span class="detail-label">Nachname:</span>
-                <span id="detail-last-name" class="detail-val">-</span>
+              
+              <div class="modal-section">
+                <h3>Adresse</h3>
+                <div class="detail-row">
+                  <span class="detail-label">Straße / Nr:</span>
+                  <input type="text" id="edit-address" class="edit-input" required />
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">PLZ:</span>
+                  <input type="text" id="edit-postal-code" class="edit-input" required />
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Ort:</span>
+                  <input type="text" id="edit-city" class="edit-input" required />
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Land:</span>
+                  <input type="text" id="edit-country" class="edit-input" required />
+                </div>
               </div>
-              <div class="detail-row">
-                <span class="detail-label">Geburtsdatum:</span>
-                <span id="detail-birthdate" class="detail-val">-</span>
-              </div>
-            </div>
-            
-            <div class="modal-section">
-              <h3>Adresse</h3>
-              <div class="detail-row">
-                <span class="detail-label">Straße / Nr:</span>
-                <span id="detail-address" class="detail-val">-</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-label">PLZ / Ort:</span>
-                <span id="detail-zip-city" class="detail-val">-</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-label">Land:</span>
-                <span id="detail-country" class="detail-val">-</span>
-              </div>
-            </div>
 
-            <div class="modal-section">
-              <h3>Kontakt</h3>
-              <div class="detail-row">
-                <span class="detail-label">E-Mail:</span>
-                <span id="detail-email" class="detail-val">-</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-label">Telefon:</span>
-                <span id="detail-phone" class="detail-val">-</span>
+              <div class="modal-section">
+                <h3>Kontakt</h3>
+                <div class="detail-row">
+                  <span class="detail-label">E-Mail:</span>
+                  <input type="email" id="edit-email" class="edit-input" required />
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Telefon:</span>
+                  <input type="text" id="edit-phone" class="edit-input" />
+                </div>
               </div>
             </div>
-          </div>
+            <div class="modal-actions">
+              <button type="button" class="btn-cancel close-modal-btn">Abbrechen</button>
+              <button type="submit" class="btn-save">Speichern</button>
+            </div>
+          </form>
         </div>
       </div>
     </main>
 
     <script src="https://aka.ms/csspeech/jsbrowserpackageraw"></script>
     <script src="/static/app.js"></script>
+    <script src="/static/warmind.js"></script>
   </body>
 </html>

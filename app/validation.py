@@ -96,11 +96,12 @@ def validate_birthdate(value: str) -> str:
 
 
 def validate_email(value: str) -> str:
-    cleaned = _normalize_text(value).lower()
+    cleaned = _normalize_text(value).lower().strip().rstrip(".,;!? ")
     
     # Handle voice-to-text artifacts
     cleaned = cleaned.replace(" punkt ", ".").replace(" dot ", ".")
     cleaned = cleaned.replace(" at ", "@").replace(" klammeraffe ", "@")
+    cleaned = cleaned.replace(" minus ", "-").replace(" bindestrich ", "-").replace(" dash ", "-")
     cleaned = cleaned.replace(" ", "") # Emails never have spaces
     
     # Common mistakes in spoken TLDs
@@ -189,26 +190,47 @@ def validate_postal_country_consistency(postal_code: str | None, country: str | 
 def parse_full_address(value: str) -> dict[str, str]:
     raw_text = value.strip()
     
-    # 0. Split by commas to handle fragments
-    segments = [s.strip() for s in raw_text.split(",") if s.strip()]
+    # 0. Split by commas to handle fragments, stripping trailing punctuation from segments
+    segments = [s.strip().rstrip(".,;!? ") for s in raw_text.split(",") if s.strip()]
+    segments = [s for s in segments if s]
     extracted: dict[str, str] = {}
-    remaining_segments = []
+    remaining_segments = []  # List of tuples: (segment_text, original_index)
+    
+    plz_idx = -1
 
-    # 1. Look for PLZ in any segment
-    for seg in segments:
-        plz_match = re.search(r"\b(\d)\s*(\d)\s*(\d)\s*(\d)\s*(\d)\b", seg)
+    # 1. Look for PLZ in any segment (matches 4 to 9 digits with optional whitespace)
+    for idx, seg in enumerate(segments):
+        plz_match = re.search(r"\b\d(?:\s*\d){3,8}\b", seg)
         if plz_match:
-            extracted["postal_code"] = "".join(plz_match.groups())
-            city_part = seg.replace(plz_match.group(0), "").strip(", ")
-            if city_part and len(city_part) > 2 and not any(c.isdigit() for c in city_part):
-                extracted["city"] = city_part
+            plz_val = re.sub(r"\s+", "", plz_match.group(0))
+            
+            # Smart heuristic for 6-8 digit PLZs (voice-transcribed house number + PLZ)
+            # e.g., "8, 14776" transcribed as "814 776". If PLZ has 6-8 digits,
+            # split the first digit(s) as the house number and the last 5 digits as the German PLZ.
+            if len(plz_val) >= 6 and len(plz_val) <= 8:
+                extracted["house_number"] = plz_val[:-5]
+                plz_val = plz_val[-5:]
+                
+            extracted["postal_code"] = plz_val
+            plz_idx = idx
+            
+            # Extract leftovers from this segment (before/after PLZ)
+            start_idx = plz_match.start()
+            end_idx = plz_match.end()
+            before_plz = seg[:start_idx].strip(",;!? ")
+            after_plz = seg[end_idx:].strip(",;!? ")
+            
+            if before_plz:
+                remaining_segments.append((before_plz, idx))
+            if after_plz:
+                remaining_segments.append((after_plz, idx))
         else:
-            remaining_segments.append(seg)
+            remaining_segments.append((seg, idx))
 
-    # 2. Look for Country
+    # 2. Look for Country in remaining segments
     all_aliases = GERMANY_ALIASES | AUSTRIA_ALIASES | SWITZERLAND_ALIASES
     final_segments = []
-    for seg in remaining_segments:
+    for seg, idx in remaining_segments:
         found_country = False
         for alias in all_aliases:
             if re.search(rf"\b{alias}\b", seg, re.IGNORECASE):
@@ -216,13 +238,13 @@ def parse_full_address(value: str) -> dict[str, str]:
                 found_country = True
                 break
         if not found_country:
-            final_segments.append(seg)
+            final_segments.append((seg, idx))
 
     # 3. Look for Street/House Number (explicit pair)
     still_remaining = []
     street_keywords = r"(straße|strasse|str\.|weg|platz|allee|gasse|ufer|ring|damm|chaussee)"
     
-    for i, seg in enumerate(final_segments):
+    for i, (seg, idx) in enumerate(final_segments):
         # Case A: "Street Name 50"
         sh_match = re.search(rf"(?P<street>[A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß .'-]+?)\s+(?P<house>[0-9]{{1,5}}[A-Za-z]?(?:[-/][0-9A-Za-z]{{1,4}})?)$", seg)
         if sh_match:
@@ -233,26 +255,33 @@ def parse_full_address(value: str) -> dict[str, str]:
         # Case B: Just "Street Name" (with keyword)
         if re.search(street_keywords, seg, re.IGNORECASE):
             extracted["street"] = seg
-            # Check if NEXT segment is just a number (House Number)
-            if i + 1 < len(final_segments) and re.match(r"^[0-9]{1,5}[A-Za-z]?$", final_segments[i+1]):
-                extracted["house_number"] = final_segments[i+1]
-                # We can't easily 'skip' the next segment in a simple loop, 
-                # but final_segments[i+1] will fail other checks anyway.
+            if i + 1 < len(final_segments) and re.match(r"^[0-9]{1,5}[A-Za-z]?$", final_segments[i+1][0]):
+                extracted["house_number"] = final_segments[i+1][0]
             continue
             
-        # Case C: Just a standalone number (House Number) if we already found a street or expect one
+        # Case C: Just a standalone number (House Number)
         if re.match(r"^[0-9]{1,5}[A-Za-z]?$", seg) and not extracted.get("house_number"):
             extracted["house_number"] = seg
             continue
 
-        still_remaining.append(seg)
+        still_remaining.append((seg, idx))
+
+    # Spatial Heuristic: If we extracted a house number (e.g. from PLZ split) but no street name,
+    # find a leftover segment positioned before or at the PLZ segment and treat it as the street.
+    if "house_number" in extracted and "street" not in extracted:
+        street_cand = next((seg for seg, idx in still_remaining if idx <= plz_idx), None)
+        if street_cand:
+            extracted["street"] = street_cand
+            still_remaining = [(seg, idx) for seg, idx in still_remaining if seg != street_cand]
 
     # 4. Use leftovers as City (careful not to pick up streets)
     if "city" not in extracted and still_remaining:
-        # Pick the longest leftover that doesn't look like a street or house number
-        city_candidates = [s for s in still_remaining if not re.search(street_keywords, s, re.IGNORECASE)]
+        # Pick the candidate that doesn't look like a street
+        city_candidates = [seg for seg, idx in still_remaining if not re.search(street_keywords, seg, re.IGNORECASE)]
         if city_candidates:
-            city_cand = max(city_candidates, key=len)
+            # Prefer leftovers positioned after the PLZ (idx > plz_idx) if available
+            post_plz_candidates = [seg for seg, idx in still_remaining if idx > plz_idx and not re.search(street_keywords, seg, re.IGNORECASE)]
+            city_cand = post_plz_candidates[0] if post_plz_candidates else max(city_candidates, key=len)
             if len(city_cand) > 2:
                 extracted["city"] = city_cand
 

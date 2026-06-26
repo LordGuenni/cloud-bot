@@ -1,14 +1,28 @@
 let sessionId = null;
 let speechAuth = null;
 let speechAuthExpiresAt = 0;
+let activeSynthesizer = null;
+let isCompleted = false;
+
 const chat = document.getElementById("chat");
 const form = document.getElementById("chat-form");
 const input = document.getElementById("message");
 const voiceBtn = document.getElementById("voice-btn");
 const restartBtn = document.getElementById("restart-btn");
 const submitBtn = form.querySelector('button[type="submit"]');
+const voiceSelect = document.getElementById("voice-select");
 
 // Chat helpers
+function stopSpeaking() {
+  if (activeSynthesizer) {
+    try {
+      activeSynthesizer.close();
+    } catch (e) {
+      console.error("Error closing active synthesizer:", e);
+    }
+    activeSynthesizer = null;
+  }
+}
 function addMessage(role, text) {
   const el = document.createElement("div");
   el.className = `msg ${role}`;
@@ -49,17 +63,39 @@ async function getSpeechAuth() {
 
 async function speak(text) {
   if (!window.SpeechSDK) return;
+  
+  stopSpeaking();
+  
   try {
     const { token, region } = await getSpeechAuth();
     const speechConfig = SpeechSDK.SpeechConfig.fromAuthorizationToken(token, region);
     speechConfig.speechSynthesisLanguage = "de-DE";
-    speechConfig.speechSynthesisVoiceName = "de-DE-KatjaNeural";
+    const voiceName = voiceSelect ? voiceSelect.value : "de-DE-KatjaNeural";
+    speechConfig.speechSynthesisVoiceName = voiceName;
 
     const synthesizer = new SpeechSDK.SpeechSynthesizer(speechConfig);
+    activeSynthesizer = synthesizer;
+    
     synthesizer.speakTextAsync(
       text,
-      () => synthesizer.close(),
-      () => synthesizer.close()
+      () => {
+        if (activeSynthesizer === synthesizer) {
+          activeSynthesizer = null;
+        }
+        synthesizer.close();
+        
+        // Auto open microphone if enabled and registration is not completed
+        const autoMicToggle = document.getElementById("auto-mic-toggle");
+        if (autoMicToggle && autoMicToggle.checked && !isCompleted) {
+          startVoiceInput();
+        }
+      },
+      () => {
+        if (activeSynthesizer === synthesizer) {
+          activeSynthesizer = null;
+        }
+        synthesizer.close();
+      }
     );
   } catch {
     // Keep chat interaction functional even if speech output fails.
@@ -67,6 +103,7 @@ async function speak(text) {
 }
 
 async function startSession() {
+  isCompleted = false;
   const cachedSessionId = localStorage.getItem("chat_session_id");
   const cachedHistory = localStorage.getItem("chat_history");
 
@@ -125,6 +162,23 @@ async function sendMessage(message) {
   history.push({ role: "user", text: message });
   localStorage.setItem("chat_history", JSON.stringify(history));
 
+  // Retrieve locally cached profile to sync to backend in case of reload/restart
+  let clientProfile = null;
+  try {
+    clientProfile = JSON.parse(localStorage.getItem("user_profile"));
+  } catch (e) {
+    clientProfile = null;
+  }
+
+  // Clear client-side cache immediately on manual/text-input restart command
+  const msgLower = message.toLowerCase().trim();
+  if (msgLower === "restart" || msgLower === "neustart" || msgLower === "zurücksetzen") {
+    localStorage.removeItem("chat_session_id");
+    localStorage.removeItem("chat_history");
+    localStorage.removeItem("user_profile");
+    clientProfile = null;
+  }
+
   setButtonsEnabled(false);
   const indicator = showTypingIndicator();
 
@@ -132,7 +186,7 @@ async function sendMessage(message) {
     const response = await fetch("/api/chat/message", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: sessionId, message })
+      body: JSON.stringify({ session_id: sessionId, message, user_profile: clientProfile })
     });
 
     indicator.remove();
@@ -144,6 +198,16 @@ async function sendMessage(message) {
     }
 
     const payload = await response.json();
+    
+    // Save updated profile state returned from the backend
+    if (payload.profile) {
+      localStorage.setItem("user_profile", JSON.stringify(payload.profile));
+    }
+
+    if (payload.completed) {
+      isCompleted = true;
+    }
+
     addMessage("bot", payload.reply);
     await speak(payload.reply);
 
@@ -151,6 +215,7 @@ async function sendMessage(message) {
       // Clear cache on successful registration
       localStorage.removeItem("chat_session_id");
       localStorage.removeItem("chat_history");
+      localStorage.removeItem("user_profile");
     } else {
       // Cache bot response
       try {
@@ -170,17 +235,20 @@ async function sendMessage(message) {
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
+  stopSpeaking();
   const message = input.value.trim();
   if (!message) return;
   input.value = "";
   await sendMessage(message);
 });
 
-voiceBtn.addEventListener("click", async () => {
+async function startVoiceInput() {
   if (!window.SpeechSDK) {
     addMessage("bot", "Azure Speech SDK is not available in this browser.");
     return;
   }
+
+  stopSpeaking();
 
   voiceBtn.disabled = true;
   voiceBtn.textContent = "Listening...";
@@ -200,32 +268,60 @@ voiceBtn.addEventListener("click", async () => {
             await sendMessage(transcript);
           }
         } else {
-          addMessage("bot", "Speech recognition did not return text.");
+          console.log("Speech recognition did not return text.");
         }
         voiceBtn.disabled = false;
         voiceBtn.textContent = "🎤 Voice";
       },
       () => {
         recognizer.close();
-        addMessage("bot", "Speech recognition failed. Try again.");
+        console.error("Speech recognition failed.");
         voiceBtn.disabled = false;
         voiceBtn.textContent = "🎤 Voice";
       }
     );
-  } catch {
-    addMessage("bot", "Could not initialize Azure Speech recognition.");
+  } catch (err) {
+    console.error("Could not initialize speech recognition:", err);
     voiceBtn.disabled = false;
     voiceBtn.textContent = "🎤 Voice";
   }
-});
+}
+
+voiceBtn.addEventListener("click", startVoiceInput);
 
 if (restartBtn) {
   restartBtn.addEventListener("click", async () => {
+    stopSpeaking();
+    isCompleted = false;
     localStorage.removeItem("chat_session_id");
     localStorage.removeItem("chat_history");
+    localStorage.removeItem("user_profile");
     chat.innerHTML = "";
     sessionId = null;
     await startSession();
+  });
+}
+
+// Restore cached voice selection
+if (voiceSelect) {
+  const cachedVoice = localStorage.getItem("voice_select");
+  if (cachedVoice) {
+    voiceSelect.value = cachedVoice;
+  }
+  voiceSelect.addEventListener("change", () => {
+    localStorage.setItem("voice_select", voiceSelect.value);
+  });
+}
+
+// Restore and save Auto-Mic preference
+const autoMicToggle = document.getElementById("auto-mic-toggle");
+if (autoMicToggle) {
+  const cachedAutoMic = localStorage.getItem("auto_mic_enabled");
+  if (cachedAutoMic !== null) {
+    autoMicToggle.checked = cachedAutoMic === "true";
+  }
+  autoMicToggle.addEventListener("change", () => {
+    localStorage.setItem("auto_mic_enabled", autoMicToggle.checked);
   });
 }
 
@@ -479,6 +575,7 @@ function renderTable() {
       <td>${escapeHtml(location)}</td>
       <td style="text-align: center;">
         <button class="btn-action" onclick="showDetails(${idx})">Details</button>
+        <button class="btn-action btn-danger" onclick="deleteAccount(${idx})">Löschen</button>
       </td>
     `;
     listEl.appendChild(tr);
@@ -500,14 +597,16 @@ window.showDetails = function(idx) {
   const acc = filteredAccounts[idx];
   if (!acc) return;
 
-  document.getElementById("detail-first-name").textContent = acc.first_name || "-";
-  document.getElementById("detail-last-name").textContent = acc.last_name || "-";
-  document.getElementById("detail-birthdate").textContent = acc.birthdate || "-";
-  document.getElementById("detail-address").textContent = acc.address_line || "-";
-  document.getElementById("detail-zip-city").textContent = `${acc.postal_code || ""} ${acc.city || ""}`.trim() || "-";
-  document.getElementById("detail-country").textContent = acc.country || "-";
-  document.getElementById("detail-email").textContent = acc.email || "-";
-  document.getElementById("detail-phone").textContent = acc.phone || "-";
+  document.getElementById("edit-id").value = acc.id || "";
+  document.getElementById("edit-first-name").value = acc.first_name || "";
+  document.getElementById("edit-last-name").value = acc.last_name || "";
+  document.getElementById("edit-birthdate").value = acc.birthdate || "";
+  document.getElementById("edit-address").value = acc.address_line || "";
+  document.getElementById("edit-postal-code").value = acc.postal_code || "";
+  document.getElementById("edit-city").value = acc.city || "";
+  document.getElementById("edit-country").value = acc.country || "";
+  document.getElementById("edit-email").value = acc.email || "";
+  document.getElementById("edit-phone").value = acc.phone || "";
 
   document.getElementById("details-modal").style.display = "block";
 };
@@ -515,16 +614,93 @@ window.showDetails = function(idx) {
 // Modal close button controls
 const modal = document.getElementById("details-modal");
 const closeModalBtn = document.querySelector(".close-modal");
+const closeModalBtn2 = document.querySelector(".close-modal-btn");
 
-closeModalBtn.addEventListener("click", () => {
-  modal.style.display = "none";
-});
+if (closeModalBtn) {
+  closeModalBtn.addEventListener("click", () => {
+    modal.style.display = "none";
+  });
+}
+if (closeModalBtn2) {
+  closeModalBtn2.addEventListener("click", () => {
+    modal.style.display = "none";
+  });
+}
 
 window.addEventListener("click", (event) => {
   if (event.target === modal) {
     modal.style.display = "none";
   }
 });
+
+// Edit form submit handler
+const editAccountForm = document.getElementById("edit-account-form");
+if (editAccountForm) {
+  editAccountForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const id = document.getElementById("edit-id").value;
+    const accountData = {
+      id,
+      first_name: document.getElementById("edit-first-name").value.trim(),
+      last_name: document.getElementById("edit-last-name").value.trim(),
+      birthdate: document.getElementById("edit-birthdate").value.trim(),
+      address_line: document.getElementById("edit-address").value.trim(),
+      postal_code: document.getElementById("edit-postal-code").value.trim(),
+      city: document.getElementById("edit-city").value.trim(),
+      country: document.getElementById("edit-country").value.trim(),
+      email: document.getElementById("edit-email").value.trim(),
+      phone: document.getElementById("edit-phone").value.trim()
+    };
+
+    try {
+      const response = await fetch("/api/admin/accounts/update", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${adminToken || ""}`
+        },
+        body: JSON.stringify(accountData)
+      });
+
+      if (!response.ok) {
+        throw new Error("Update failed");
+      }
+
+      modal.style.display = "none";
+      await loadAccounts(adminToken);
+    } catch (err) {
+      alert("Fehler beim Speichern: " + err.message);
+    }
+  });
+}
+
+// Delete account handler
+window.deleteAccount = async function(idx) {
+  const acc = filteredAccounts[idx];
+  if (!acc) return;
+
+  const confirmed = confirm(`Möchtest du den Account von ${acc.first_name} ${acc.last_name} wirklich löschen?`);
+  if (!confirmed) return;
+
+  try {
+    const response = await fetch("/api/admin/accounts/delete", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${adminToken || ""}`
+      },
+      body: JSON.stringify({ id: acc.id, email: acc.email })
+    });
+
+    if (!response.ok) {
+      throw new Error("Delete failed");
+    }
+
+    await loadAccounts(adminToken);
+  } catch (err) {
+    alert("Fehler beim Löschen: " + err.message);
+  }
+};
 
 // Search input functionality
 const searchInput = document.getElementById("admin-search");

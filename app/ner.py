@@ -88,7 +88,7 @@ class AzureNerExtractor:
                 values.setdefault("first_name", parts[0])
                 values.setdefault("last_name", " ".join(parts[1:]))
 
-        address_source = address_hint or text
+        address_source = text
         values.update({k: v for k, v in parse_full_address(address_source).items() if v})
         
         return values

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Callable
+import re
 
 from botbuilder.core import MessageFactory, UserState
 from botbuilder.dialogs import (
@@ -150,11 +151,16 @@ class RegistrationDialog(ComponentDialog):
         if step_context.result:
             entities = self.extract_entities(step_context.result)
             try:
-                if entities.get("street"): user_profile.street = validate_street(entities["street"])
-                if entities.get("house_number"): user_profile.house_number = validate_house_number(entities["house_number"])
-                if entities.get("postal_code"): user_profile.postal_code = validate_postal_code(entities["postal_code"])
-                if entities.get("city"): user_profile.city = validate_city(entities["city"])
-                if entities.get("country"): user_profile.country = validate_country(entities["country"])
+                if entities.get("street") and not user_profile.street:
+                    user_profile.street = validate_street(entities["street"])
+                if entities.get("house_number") and not user_profile.house_number:
+                    user_profile.house_number = validate_house_number(entities["house_number"])
+                if entities.get("postal_code") and not user_profile.postal_code:
+                    user_profile.postal_code = validate_postal_code(entities["postal_code"])
+                if entities.get("city") and not user_profile.city:
+                    user_profile.city = validate_city(entities["city"])
+                if entities.get("country") and not user_profile.country:
+                    user_profile.country = validate_country(entities["country"])
                 
                 # Check consistency
                 validate_postal_country_consistency(user_profile.postal_code, user_profile.country)
@@ -191,11 +197,16 @@ class RegistrationDialog(ComponentDialog):
         if step_context.result is not None and not user_profile.email:
             entities = self.extract_entities(step_context.result)
             try:
-                if entities.get("street"): user_profile.street = validate_street(entities["street"])
-                if entities.get("house_number"): user_profile.house_number = validate_house_number(entities["house_number"])
-                if entities.get("postal_code"): user_profile.postal_code = validate_postal_code(entities["postal_code"])
-                if entities.get("city"): user_profile.city = validate_city(entities["city"])
-                if entities.get("country"): user_profile.country = validate_country(entities["country"])
+                if entities.get("street") and not user_profile.street:
+                    user_profile.street = validate_street(entities["street"])
+                if entities.get("house_number") and not user_profile.house_number:
+                    user_profile.house_number = validate_house_number(entities["house_number"])
+                if entities.get("postal_code") and not user_profile.postal_code:
+                    user_profile.postal_code = validate_postal_code(entities["postal_code"])
+                if entities.get("city") and not user_profile.city:
+                    user_profile.city = validate_city(entities["city"])
+                if entities.get("country") and not user_profile.country:
+                    user_profile.country = validate_country(entities["country"])
                 validate_postal_country_consistency(user_profile.postal_code, user_profile.country)
             except ValueError:
                 pass 
@@ -218,11 +229,29 @@ class RegistrationDialog(ComponentDialog):
         
         if step_context.result and not user_profile.email:
             try:
-                entities = self.extract_entities(step_context.result)
-                email_candidate = entities.get("email") or step_context.result
-                user_profile.email = validate_email(email_candidate)
+                text = step_context.result
+                entities = self.extract_entities(text)
                 
+                # 1. Try to find phone candidate from entities or regex
                 phone_candidate = entities.get("phone")
+                if not phone_candidate:
+                    # Regex matches German/Swiss/Austrian mobile and landline patterns
+                    phone_match = re.search(r'\b(?:\+?49|0)(?:\s*\d){6,14}\b', text)
+                    if phone_match:
+                        phone_candidate = phone_match.group(0)
+                        # Remove the phone number from the text to avoid messing up the email
+                        text = text.replace(phone_candidate, " ").strip()
+                else:
+                    # If entity recognition found it, also remove it from text
+                    text = text.replace(phone_candidate, " ").strip()
+
+                # 2. Try to find email candidate from entities or the remaining text
+                email_candidate = entities.get("email")
+                if not email_candidate:
+                    email_candidate = text
+                
+                # 3. Validate and save
+                user_profile.email = validate_email(email_candidate)
                 if phone_candidate:
                     user_profile.phone = validate_phone(phone_candidate)
             except ValueError as exc:
@@ -267,6 +296,20 @@ class RegistrationDialog(ComponentDialog):
             }
             
             self.save_account(account_data)
+            
+            # Reset user profile state on successful completion
+            user_profile.first_name = None
+            user_profile.last_name = None
+            user_profile.birthdate = None
+            user_profile.email = None
+            user_profile.phone = None
+            user_profile.street = None
+            user_profile.house_number = None
+            user_profile.postal_code = None
+            user_profile.city = None
+            user_profile.country = None
+            user_profile.confirmed = False
+
             await step_context.context.send_activity(
                 MessageFactory.text("Perfekt, dein Account wurde gespeichert. Auf Wiedersehen!")
             )

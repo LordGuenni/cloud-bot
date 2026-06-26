@@ -38,6 +38,39 @@ class RegistrationBot(ActivityHandler):
                 await self.conversation_state.delete(turn_context)
                 await self.user_state.delete(turn_context)
                 await turn_context.send_activity("Alles klar, wir fangen von vorne an.")
+            elif text in ["status", "info", "bereits gesammelt", "was weißt du schon", "zusammenfassung", "stand", "informationen", "was hast du"]:
+                user_profile_accessor = self.user_state.create_property("UserProfile")
+                from .models import UserProfile
+                user_profile = await user_profile_accessor.get(turn_context, UserProfile)
+                
+                collected = []
+                if user_profile.first_name or user_profile.last_name:
+                    collected.append(f"Name: {user_profile.first_name or ''} {user_profile.last_name or ''}".strip())
+                if user_profile.birthdate:
+                    collected.append(f"Geburtsdatum: {user_profile.birthdate}")
+                
+                addr_parts = []
+                if user_profile.street:
+                    addr_parts.append(f"{user_profile.street} {user_profile.house_number or ''}".strip())
+                if user_profile.postal_code or user_profile.city:
+                    addr_parts.append(f"{user_profile.postal_code or ''} {user_profile.city or ''}".strip())
+                if user_profile.country:
+                    addr_parts.append(user_profile.country)
+                if addr_parts:
+                    collected.append(f"Adresse: {', '.join(addr_parts)}")
+                    
+                if user_profile.email:
+                    collected.append(f"E-Mail: {user_profile.email}")
+                if user_profile.phone:
+                    collected.append(f"Telefon: {user_profile.phone}")
+                    
+                if collected:
+                    details = "\n- ".join(collected)
+                    msg = f"Ich habe bisher folgende Daten gesammelt:\n- {details}"
+                else:
+                    msg = "Ich habe bisher noch keine Daten gesammelt."
+                
+                await turn_context.send_activity(msg)
                 
         await DialogExtensions.run_dialog(
             self.dialog,

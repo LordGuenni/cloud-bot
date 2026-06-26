@@ -20,7 +20,8 @@ from .config import KeyVaultSecretProvider, load_app_config
 from .dialog import RegistrationDialog
 from .ner import AzureNerExtractor
 from .speech import SpeechTokenService
-from .storage import CosmosAccountStore
+from .storage import CosmosAccountStore, FileStorage
+from .models import UserProfile
 
 app = FastAPI(title="Registration Voice/Chat Bot (Bot Framework SDK)")
 
@@ -54,9 +55,10 @@ adapter = BotFrameworkAdapter(adapter_settings)
 bridge_adapter = BotFrameworkAdapter(BotFrameworkAdapterSettings("", ""))
 
 # Storage & State
-storage = MemoryStorage()
+storage = FileStorage()
 user_state = UserState(storage)
 conversation_state = ConversationState(storage)
+user_profile_accessor = user_state.create_property("UserProfile")
 
 cosmos_endpoint = secret_provider.get_secret(secret_names["cosmos_endpoint"])
 if not cosmos_endpoint:
@@ -99,6 +101,11 @@ def root() -> FileResponse:
     return FileResponse("web/index.html")
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon() -> FileResponse:
+    return FileResponse("web/favicon.svg")
+
+
 @app.post("/api/messages")
 async def messages(request: Request) -> Response:
     if "application/json" in request.headers.get("content-type", ""):
@@ -135,7 +142,9 @@ async def chat_message(request: Request) -> dict[str, Any]:
     body = await request.json()
     user_text = body.get("message", "")
     session_id = body.get("session_id", "web-session")
+    client_profile = body.get("user_profile")
     responses = []
+    user_profile_data = {}
 
     # Middleware-like function to capture bot responses
     async def capture_responses(context, next_turn):
@@ -172,7 +181,31 @@ async def chat_message(request: Request) -> dict[str, Any]:
                 return resource_responses
             
             context.send_activities = hooked_send_activities
+            
+            # Sync client-side user profile if server-side state is empty
+            profile = await user_profile_accessor.get(context, UserProfile)
+            if client_profile and isinstance(client_profile, dict):
+                for k, v in client_profile.items():
+                    if v and hasattr(profile, k) and not getattr(profile, k):
+                        setattr(profile, k, v)
+            
             await bot.on_turn(context)
+            
+            # Populate updated profile data to return to the client
+            profile = await user_profile_accessor.get(context, UserProfile)
+            if profile:
+                user_profile_data.update({
+                    "first_name": profile.first_name,
+                    "last_name": profile.last_name,
+                    "birthdate": profile.birthdate,
+                    "street": profile.street,
+                    "house_number": profile.house_number,
+                    "postal_code": profile.postal_code,
+                    "city": profile.city,
+                    "country": profile.country,
+                    "email": profile.email,
+                    "phone": profile.phone
+                })
 
         # Use bridge_adapter (no auth) instead of the main adapter
         await bridge_adapter.process_activity(activity, "", turn_wrapper)
@@ -181,7 +214,8 @@ async def chat_message(request: Request) -> dict[str, Any]:
         return {
             "session_id": session_id,
             "reply": reply_text,
-            "completed": "gespeichert" in reply_text.lower()
+            "completed": "gespeichert" in reply_text.lower(),
+            "profile": user_profile_data
         }
     except Exception as exc:
         full_error = f"{str(exc)} | Endpunkt: {language_endpoint}"
@@ -198,11 +232,16 @@ from jwt.algorithms import RSAAlgorithm
 import httpx
 
 # Load tenant_id from config.json
-tenant_id = ""
+import os
+tenant_id = "common"
 try:
-    with open("config.json", "r", encoding="utf-8") as f:
-        config_data = json.load(f)
-        tenant_id = config_data.get("tenant_id", "")
+    config_path = os.environ.get("BOT_CONFIG_PATH", "config.json")
+    if os.path.exists(config_path):
+        with open(config_path, "r", encoding="utf-8") as f:
+            config_data = json.load(f)
+            val = config_data.get("tenant_id", "")
+            if val:
+                tenant_id = val
 except Exception:
     pass
 
@@ -282,6 +321,51 @@ async def list_accounts(authorization: str | None = Header(default=None)) -> lis
         raise HTTPException(status_code=401, detail="Entra ID Token-Validierung fehlgeschlagen")
         
     return account_store.list_accounts()
+
+
+@app.post("/api/admin/accounts/update")
+async def update_account(request: Request, authorization: str | None = Header(default=None)) -> dict[str, str]:
+    if token_validator.client_id:
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+        token = authorization.split(" ")[1]
+        is_valid = await token_validator.validate_token(token)
+        if not is_valid:
+            raise HTTPException(status_code=401, detail="Entra ID Token-Validierung fehlgeschlagen")
+            
+    body = await request.json()
+    if "id" not in body:
+        raise HTTPException(status_code=400, detail="Account ID fehlt")
+        
+    try:
+        account_store.update(body)
+        return {"status": "success", "message": "Account erfolgreich aktualisiert"}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/admin/accounts/delete")
+async def delete_account(request: Request, authorization: str | None = Header(default=None)) -> dict[str, str]:
+    if token_validator.client_id:
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+        token = authorization.split(" ")[1]
+        is_valid = await token_validator.validate_token(token)
+        if not is_valid:
+            raise HTTPException(status_code=401, detail="Entra ID Token-Validierung fehlgeschlagen")
+            
+    body = await request.json()
+    account_id = body.get("id")
+    email = body.get("email")
+    
+    if not account_id or not email:
+        raise HTTPException(status_code=400, detail="Account ID und E-Mail (Partition Key) sind erforderlich")
+        
+    try:
+        account_store.delete(account_id, email)
+        return {"status": "success", "message": "Account erfolgreich gelöscht"}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.get("/api/speech/token")
