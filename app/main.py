@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response, Header
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from botbuilder.core import (
@@ -84,7 +84,6 @@ speech_service = SpeechTokenService(
 )
 ner_extractor = AzureNerExtractor(endpoint=language_endpoint, key=language_key)
 
-
 registration_dialog = RegistrationDialog(
     user_state=user_state,
     save_account=account_store.save,
@@ -121,13 +120,11 @@ async def messages(request: Request) -> Response:
 
 @app.post("/api/chat/start")
 async def start_session() -> dict[str, str]:
-    # Clear existing state directly from storage to ensure a fresh start
-    # MemoryStorage stores everything in its .memory attribute
-    if hasattr(storage, "memory"):
-        storage.memory.clear()
+    import uuid
+    session_id = str(uuid.uuid4())
     
     return {
-        "session_id": "web-session",
+        "session_id": session_id,
         "reply": "Willkommen! Ich lege mit dir einen neuen Account an. Wie lauten dein Vor- und Nachname?",
         "expected_field": "first_name"
     }
@@ -137,6 +134,7 @@ async def start_session() -> dict[str, str]:
 async def chat_message(request: Request) -> dict[str, Any]:
     body = await request.json()
     user_text = body.get("message", "")
+    session_id = body.get("session_id", "web-session")
     responses = []
 
     # Middleware-like function to capture bot responses
@@ -154,9 +152,9 @@ async def chat_message(request: Request) -> dict[str, Any]:
     activity = Activity(
         type=ActivityTypes.message,
         text=user_text,
-        from_property=ChannelAccount(id="web-user", name="User"),
+        from_property=ChannelAccount(id=f"user-{session_id}", name="User"),
         recipient=ChannelAccount(id="bot", name="Bot"),
-        conversation=ChannelAccount(id="web-conv"),
+        conversation=ChannelAccount(id=f"conv-{session_id}"),
         service_url="http://localhost",
         channel_id="emulator"
     )
@@ -181,21 +179,108 @@ async def chat_message(request: Request) -> dict[str, Any]:
         reply_text = " ".join(responses) if responses else "Ich habe dich leider nicht verstanden."
         
         return {
-            "session_id": "web-session",
+            "session_id": session_id,
             "reply": reply_text,
             "completed": "gespeichert" in reply_text.lower()
         }
     except Exception as exc:
         full_error = f"{str(exc)} | Endpunkt: {language_endpoint}"
         return {
-            "session_id": "web-session",
+            "session_id": session_id,
             "reply": f"SYSTEM-DIAGNOSE: {full_error}",
             "completed": False
         }
 
 
+import json
+import jwt
+from jwt.algorithms import RSAAlgorithm
+import httpx
+
+# Load tenant_id from config.json
+tenant_id = ""
+try:
+    with open("config.json", "r", encoding="utf-8") as f:
+        config_data = json.load(f)
+        tenant_id = config_data.get("tenant_id", "")
+except Exception:
+    pass
+
+class EntraIdTokenValidator:
+    def __init__(self, tenant_id: str, client_id: str):
+        self.tenant_id = tenant_id
+        self.client_id = client_id
+        self.jwks_url = f"https://login.microsoftonline.com/{tenant_id}/discovery/v2.0/keys"
+        self.keys = []
+
+    async def _fetch_keys(self):
+        if not self.keys:
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(self.jwks_url, timeout=5.0)
+                    self.keys = resp.json().get("keys", [])
+            except Exception as e:
+                print(f"Error fetching JWKS keys: {e}")
+                self.keys = []
+
+    async def validate_token(self, token: str) -> bool:
+        if not self.client_id:
+            # Bypass validation in local development without Client ID
+            print("WARNING: Microsoft App ID is empty. Bypassing Entra ID token validation.")
+            return True
+            
+        try:
+            await self._fetch_keys()
+            unverified_header = jwt.get_unverified_header(token)
+            kid = unverified_header.get("kid")
+            
+            key_data = next((k for k in self.keys if k["kid"] == kid), None)
+            if not key_data:
+                print("Error: kid not found in JWKS.")
+                return False
+                
+            public_key = RSAAlgorithm.from_jwk(key_data)
+            
+            # Verify token signature, audience, and issuer
+            # Note: MSAL.js idTokens use v2.0 endpoint by default
+            jwt.decode(
+                token,
+                public_key,
+                algorithms=["RS256"],
+                audience=self.client_id,
+                issuer=f"https://login.microsoftonline.com/{self.tenant_id}/v2.0"
+            )
+            return True
+        except Exception as exc:
+            print(f"Token validation failed: {exc}")
+            return False
+
+# Instantiate validator
+token_validator = EntraIdTokenValidator(tenant_id=tenant_id, client_id=app_id)
+
+
+@app.get("/api/admin/config")
+def get_admin_config() -> dict[str, str]:
+    return {
+        "client_id": app_id,
+        "tenant_id": tenant_id
+    }
+
+
 @app.get("/api/admin/accounts")
-def list_accounts() -> list[dict[str, object]]:
+async def list_accounts(authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
+    if not token_validator.client_id:
+        # If no client ID is configured, bypass authentication for local testing
+        return account_store.list_accounts()
+        
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+        
+    token = authorization.split(" ")[1]
+    is_valid = await token_validator.validate_token(token)
+    if not is_valid:
+        raise HTTPException(status_code=401, detail="Entra ID Token-Validierung fehlgeschlagen")
+        
     return account_store.list_accounts()
 
 

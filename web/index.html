@@ -1,25 +1,190 @@
 <!doctype html>
-<html lang="en">
+<html lang="de">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>THB Azure Registration Bot</title>
+    <title>THB Azure Registration Bot & Admin Dashboard</title>
     <link rel="stylesheet" href="/static/style.css" />
+    <!-- Google Fonts for a modern, premium look -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- jsPDF and jsPDF-AutoTable for client-side PDF export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.29/jspdf.plugin.autotable.min.js"></script>
+    <!-- Microsoft MSAL.js for Entra ID Authentication -->
+    <script src="https://alcdn.msauth.net/browser/msal-browser/2.37.0/js/msal-browser.min.js"></script>
   </head>
   <body>
     <main class="container">
       <h1>THB Azure Registration Bot</h1>
-      <div id="chat" class="chat"></div>
-      <form id="chat-form" class="composer">
-        <input id="message" type="text" autocomplete="off" placeholder="Type your message..." />
-        <button type="submit">Send</button>
-        <button id="voice-btn" type="button">🎤 Voice</button>
-      </form>
-      <p class="hint">
-        Voice input/output uses Azure Speech Services. Commands: <code>restart</code>,
-        <code>yes</code>/<code>no</code>.
-      </p>
+      
+      <!-- Tab Navigation -->
+      <div class="tabs">
+        <button id="tab-chat" class="tab-btn active">💬 Registrierungs-Bot</button>
+        <button id="tab-admin" class="tab-btn">🛡️ Admin-Dashboard</button>
+      </div>
+
+      <!-- Chat View -->
+      <div id="chat-view" class="tab-content active">
+        <div id="chat" class="chat"></div>
+        <form id="chat-form" class="composer">
+          <input id="message" type="text" autocomplete="off" placeholder="Schreibe eine Nachricht..." />
+          <button type="submit">Senden</button>
+          <button id="voice-btn" type="button">🎤 Voice</button>
+          <button id="restart-btn" type="button">🔄 Neustart</button>
+        </form>
+        <p class="hint">
+          Spracheingabe/-ausgabe nutzt Azure Speech Services. Befehle: <code>restart</code>,
+          <code>ja</code>/<code>nein</code>.
+        </p>
+      </div>
+
+      <!-- Admin View (Dashboard) -->
+      <div id="admin-view" class="tab-content">
+        <!-- Stats Summary Grid -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon gradient-blue">👥</div>
+            <div class="stat-info">
+              <span class="stat-label">Registrierte Accounts</span>
+              <span id="stat-total" class="stat-value">0</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon gradient-purple">📅</div>
+            <div class="stat-info">
+              <span class="stat-label">Durchschnittsalter</span>
+              <span id="stat-avg-age" class="stat-value">0 J.</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon gradient-pink">📞</div>
+            <div class="stat-info">
+              <span class="stat-label">Tel. Ausfüllrate</span>
+              <span id="stat-phone-rate" class="stat-value">0%</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon gradient-amber">🌍</div>
+            <div class="stat-info">
+              <span class="stat-label">Top Land</span>
+              <span id="stat-top-country" class="stat-value">-</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Search and Export Toolbar -->
+        <div class="admin-toolbar">
+          <div class="search-wrapper">
+            <span class="search-icon">🔍</span>
+            <input id="admin-search" type="text" placeholder="Accounts durchsuchen (Name, E-Mail, Ort, Land...)" />
+            <button id="clear-search" class="clear-btn">&times;</button>
+          </div>
+          <div class="export-buttons">
+            <button id="export-json" class="btn-export secondary" title="Als JSON exportieren">
+              <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16" style="margin-right: 6px;">
+                <path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5zm-3 0A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4.5h-2z"/>
+                <path d="M4.1 12H3v-.5h1.1v-.5H3v-.5h1.1V10H2v2.5h2.1V12zm2 .5h1.2v-.5H6.1v-.5H7.3v-.5H6.1V10h-.9v2.5h2.1V12zm1.6-1.5h1v.5h-1V11zm2.3 0h1v.5h-1v-.5zm-3.3.5h2.1v-.5H6.7V11h2.1V10.5H6.7V10H5.8v2.5h2.1V12z"/>
+              </svg>
+              JSON
+            </button>
+            <button id="export-csv" class="btn-export secondary" title="Als CSV exportieren">
+              <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16" style="margin-right: 6px;">
+                <path d="M14 14V4.5L9.5 0H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2zM9.5 3A1.5 1.5 0 0 0 11 4.5h2V14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1h5.5v2z"/>
+                <path d="M3.5 12h1.5v-.5H3.5v-.5H5v-.5H3.5V10h-1v2.5h2.5V12zM7 11h1v.5H7V12h1.5v.5h-2.5V10H7v1zm2.5-.5h1.5v.5H9.5V11H11v.5h-2.5V10H11v.5H9.5z"/>
+              </svg>
+              CSV
+            </button>
+            <button id="export-pdf" class="btn-export primary" title="Statistiken & Tabelle als PDF exportieren">
+              <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16" style="margin-right: 6px;">
+                <path d="M14 14V4.5L9.5 0H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2zM9.5 3A1.5 1.5 0 0 0 11 4.5h2V14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1h5.5v2z"/>
+                <path d="M4.603 12.087a.81.81 0 0 1-.438-.42c-.195-.388-.13-.776.08-1.102.2-.307.504-.5.875-.575.224-.046.47-.05.717-.015.358.05.772.183 1.205.37a23.99 23.99 0 0 1-1.077-2.188c.09-.388.136-.78.136-1.168 0-.263-.026-.57-.144-.808a.552.552 0 0 0-.518-.354c-.221 0-.417.111-.537.306-.188.307-.175.748-.05 1.238a20.016 20.016 0 0 1-.688 2.507c-.446.435-.91.82-1.378 1.157-.338.243-.73.493-1.146.602a.812.812 0 0 1-.772-.082z"/>
+              </svg>
+              Statistik PDF
+            </button>
+          </div>
+        </div>
+
+        <!-- Table Container -->
+        <div class="table-container">
+          <table id="accounts-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Geburtsdatum</th>
+                <th>E-Mail</th>
+                <th>Telefon</th>
+                <th>Ort & Land</th>
+                <th style="text-align: center;">Aktionen</th>
+              </tr>
+            </thead>
+            <tbody id="accounts-list">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+          <div id="no-accounts" class="no-data">
+            <span class="no-data-icon">📂</span>
+            <p>Keine Accounts vorhanden oder entsprechen dem Filter.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detail Modal -->
+      <div id="details-modal" class="modal">
+        <div class="modal-content">
+          <span class="close-modal">&times;</span>
+          <h2>👤 Account-Details</h2>
+          <div class="modal-divider"></div>
+          <div class="modal-grid">
+            <div class="modal-section">
+              <h3>Persönliches</h3>
+              <div class="detail-row">
+                <span class="detail-label">Vorname:</span>
+                <span id="detail-first-name" class="detail-val">-</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Nachname:</span>
+                <span id="detail-last-name" class="detail-val">-</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Geburtsdatum:</span>
+                <span id="detail-birthdate" class="detail-val">-</span>
+              </div>
+            </div>
+            
+            <div class="modal-section">
+              <h3>Adresse</h3>
+              <div class="detail-row">
+                <span class="detail-label">Straße / Nr:</span>
+                <span id="detail-address" class="detail-val">-</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">PLZ / Ort:</span>
+                <span id="detail-zip-city" class="detail-val">-</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Land:</span>
+                <span id="detail-country" class="detail-val">-</span>
+              </div>
+            </div>
+
+            <div class="modal-section">
+              <h3>Kontakt</h3>
+              <div class="detail-row">
+                <span class="detail-label">E-Mail:</span>
+                <span id="detail-email" class="detail-val">-</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Telefon:</span>
+                <span id="detail-phone" class="detail-val">-</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </main>
+
     <script src="https://aka.ms/csspeech/jsbrowserpackageraw"></script>
     <script src="/static/app.js"></script>
   </body>
