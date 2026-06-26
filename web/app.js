@@ -262,6 +262,9 @@ async function getEntraConfig() {
 
 async function initMsal(clientId, tenantId) {
   if (msalInstance) return msalInstance;
+  if (typeof msal === "undefined") {
+    throw new Error("Microsoft MSAL SDK konnte nicht geladen werden. Bitte Internetverbindung oder Adblocker prüfen.");
+  }
   const msalConfig = {
     auth: {
       clientId: clientId,
