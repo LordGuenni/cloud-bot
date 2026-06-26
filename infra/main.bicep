@@ -56,6 +56,10 @@ resource webApp 'Microsoft.Web/sites@2022-03-01' = {
           name: 'KEY_VAULT_URI'
           value: 'https://${kvName}${az.environment().suffixes.keyvaultDns}/'
         }
+        {
+          name: 'TENANT_ID'
+          value: subscription().tenantId
+        }
       ]
     }
   }

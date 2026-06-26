@@ -368,3 +368,17 @@ Das Backend nutzt das Azure Identity SDK (`DefaultAzureCredential`). Dies bedeut
    pip install -r requirements.txt
    uvicorn app.main:app --reload
    ```
+
+---
+
+### 5. Wichtiger Hinweis für die Azure-Bereitstellung (Single-Tenant App Registration)
+
+Da `config.json` standardmäßig in `.gitignore` eingetragen ist, wird diese Konfigurationsdatei **nicht** mit auf den Azure App Service übertragen. 
+
+Wenn deine Entra ID App-Registrierung als **Single-Tenant** (nur Konten in diesem Organisationsverzeichnis) konfiguriert ist, wird MSAL standardmäßig versuchen, sich an dem `common` (Multi-Tenant) Endpoint anzumelden. Dies führt zu folgender Fehlermeldung:
+`unauthorized_client: The client does not exist or is not enabled for consumers.`
+
+**Lösung:**
+Trage im Azure App Service in den **Umgebungsvariablen** (Environment Variables / App Settings) folgende Variablen ein:
+- **`TENANT_ID`**: Deine Azure Tenant (Directory) ID (z. B. `c681ef2a-915c-476a-a2c6-8bf60c47a543`).
+- **`MICROSOFT_APP_ID`**: Die Client-ID (Application ID) deiner App-Registrierung (wird andernfalls aus dem Key Vault über das Secret `microsoft-app-id` geladen).

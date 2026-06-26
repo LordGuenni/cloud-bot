@@ -231,19 +231,22 @@ import jwt
 from jwt.algorithms import RSAAlgorithm
 import httpx
 
-# Load tenant_id from config.json
+# Load tenant_id from environment variable or fallback to config.json, otherwise "common"
 import os
-tenant_id = "common"
-try:
-    config_path = os.environ.get("BOT_CONFIG_PATH", "config.json")
-    if os.path.exists(config_path):
-        with open(config_path, "r", encoding="utf-8") as f:
-            config_data = json.load(f)
-            val = config_data.get("tenant_id", "")
-            if val:
-                tenant_id = val
-except Exception:
-    pass
+tenant_id = os.environ.get("TENANT_ID", "")
+if not tenant_id:
+    try:
+        config_path = os.environ.get("BOT_CONFIG_PATH", "config.json")
+        if os.path.exists(config_path):
+            with open(config_path, "r", encoding="utf-8") as f:
+                config_data = json.load(f)
+                val = config_data.get("tenant_id", "")
+                if val:
+                    tenant_id = val
+    except Exception:
+        pass
+if not tenant_id:
+    tenant_id = "common"
 
 class EntraIdTokenValidator:
     def __init__(self, tenant_id: str, client_id: str):
