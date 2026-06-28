@@ -15,8 +15,6 @@ Im Rahmen dieses Projekts wird ein cloudbasierter Sprachbot entwickelt, der Nutz
 ## 2. Dialogfluss (Dialog Flow)
 Der nachfolgende Ablauf beschreibt den idealen Pfad ("Happy Path") der Registrierung sowie die integrierte Fehlerbehandlung bei unklaren Eingaben oder unvollständigen Daten.
 
-*Hinweis für die Umsetzung in draw.io: Dieser Text kann als lineares Flussdiagramm mit Rückkopplungsschleifen visualisiert werden.*
-
 1. **Initialisierung & Begrüßung:**
     * **Bot:** "Willkommen! Ich helfe dir bei der Erstellung deines neuen Accounts. Lass uns mit deinen persönlichen Daten beginnen. Wie lauten dein Vor- und Nachname?"
 2. **Erfassung Persönliche Daten:**
