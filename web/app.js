@@ -2,6 +2,7 @@ let sessionId = null;
 let speechAuth = null;
 let speechAuthExpiresAt = 0;
 let activeSynthesizer = null;
+let globalPlayer = null;
 let isCompleted = false;
 
 const chat = document.getElementById("chat");
@@ -12,15 +13,25 @@ const restartBtn = document.getElementById("restart-btn");
 const submitBtn = form.querySelector('button[type="submit"]');
 const voiceSelect = document.getElementById("voice-select");
 
+let activeAudioSource = null;
+let audioContext = null;
+
+function getAudioContext() {
+  if (!audioContext) {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  return audioContext;
+}
+
 // Chat helpers
 function stopSpeaking() {
-  if (activeSynthesizer) {
+  if (activeAudioSource) {
     try {
-      activeSynthesizer.close();
+      activeAudioSource.stop();
     } catch (e) {
-      console.error("Error closing active synthesizer:", e);
+      console.error("Error stopping audio source:", e);
     }
-    activeSynthesizer = null;
+    activeAudioSource = null;
   }
 }
 function addMessage(role, text) {
@@ -72,37 +83,57 @@ async function speak(text) {
     speechConfig.speechSynthesisLanguage = "de-DE";
     const voiceName = voiceSelect ? voiceSelect.value : "de-DE-KatjaNeural";
     speechConfig.speechSynthesisVoiceName = voiceName;
+    
+    // Use standard RIFF (WAV) format for maximum compatibility with AudioContext.decodeAudioData
+    speechConfig.speechSynthesisOutputFormat = SpeechSDK.SpeechSynthesisOutputFormat.Riff24Khz16BitMonoPcm;
 
-    const synthesizer = new SpeechSDK.SpeechSynthesizer(speechConfig);
-    activeSynthesizer = synthesizer;
+    // Passing null prevents the SDK from playing it automatically
+    const synthesizer = new SpeechSDK.SpeechSynthesizer(speechConfig, null);
     
     synthesizer.speakTextAsync(
       text,
-      () => {
-        if (activeSynthesizer === synthesizer) {
-          activeSynthesizer = null;
-        }
+      async (result) => {
         synthesizer.close();
-        
-        // Auto open microphone if enabled and registration is not completed
-        const autoMicToggle = document.getElementById("auto-mic-toggle");
-        if (autoMicToggle && autoMicToggle.checked && !isCompleted) {
-          startVoiceInput();
+        if (result.reason === SpeechSDK.ResultReason.SynthesizingAudioCompleted) {
+          const audioData = result.audioData;
+          if (audioData) {
+            const ctx = getAudioContext();
+            if (ctx.state === 'suspended') {
+              await ctx.resume();
+            }
+            try {
+              const decodedData = await ctx.decodeAudioData(audioData);
+              const source = ctx.createBufferSource();
+              source.buffer = decodedData;
+              source.connect(ctx.destination);
+              
+              source.onended = () => {
+                activeAudioSource = null;
+                const autoMicToggle = document.getElementById("auto-mic-toggle");
+                if (autoMicToggle && autoMicToggle.checked && !isCompleted) {
+                  startVoiceInput();
+                }
+              };
+              
+              activeAudioSource = source;
+              source.start(0);
+            } catch (err) {
+              console.error("Audio decoding failed", err);
+            }
+          }
         }
       },
-      () => {
-        if (activeSynthesizer === synthesizer) {
-          activeSynthesizer = null;
-        }
+      (error) => {
+        console.error("Synthesis error:", error);
         synthesizer.close();
       }
     );
-  } catch {
-    // Keep chat interaction functional even if speech output fails.
+  } catch (err) {
+    console.error("Speech init failed", err);
   }
 }
 
-async function startSession() {
+async function startSession(shouldSpeak = true) {
   isCompleted = false;
   const cachedSessionId = localStorage.getItem("chat_session_id");
   const cachedHistory = localStorage.getItem("chat_history");
@@ -142,7 +173,9 @@ async function startSession() {
     // Cache welcome message
     localStorage.setItem("chat_history", JSON.stringify([{ role: "bot", text: payload.reply }]));
     
-    await speak(payload.reply);
+    if (shouldSpeak) {
+      await speak(payload.reply);
+    }
   } catch (err) {
     indicator.remove();
     throw err;
@@ -247,7 +280,7 @@ async function startVoiceInput() {
     addMessage("bot", "Azure Speech SDK is not available in this browser.");
     return;
   }
-
+  
   stopSpeaking();
 
   voiceBtn.disabled = true;
@@ -325,9 +358,43 @@ if (autoMicToggle) {
   });
 }
 
-// Initialize session on startup
-startSession().catch(() => addMessage("bot", "Could not initialize chat session."));
+const startBotBtn = document.getElementById("start-bot-btn");
+const permissionModal = document.getElementById("permission-modal");
 
+if (startBotBtn && permissionModal) {
+  startBotBtn.addEventListener("click", async () => {
+    // Request microphone permissions
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      console.warn("Microphone permission denied or error:", err);
+      // We continue anyway, so the user can at least hear the bot and type
+    }
+    
+    // Unlock AudioContext if supported
+    if (window.AudioContext || window.webkitAudioContext) {
+      const ctx = getAudioContext();
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+    }
+
+    // Hide Modal
+    permissionModal.classList.add("hidden");
+    setTimeout(() => permissionModal.remove(), 300);
+
+    startSession(true).catch(() => addMessage("bot", "Could not initialize chat session."));
+  });
+}
+
+// Initialize session from cache on startup if it exists, otherwise wait for modal button
+if (localStorage.getItem("chat_session_id") && localStorage.getItem("chat_history")) {
+  if (permissionModal) {
+    permissionModal.classList.add("hidden");
+    permissionModal.remove();
+  }
+  startSession(false).catch(() => addMessage("bot", "Could not initialize chat session."));
+}
 
 // --- ADMIN DASHBOARD IMPLEMENTATION ---
 

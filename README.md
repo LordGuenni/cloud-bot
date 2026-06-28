@@ -152,6 +152,10 @@ Dieses Prototype-Setup nutzt:
 - **Browser UI** mit Chat + Spracheingabe/-ausgabe über **Azure Speech Services**
 - **Cosmos DB Speicherung** der bestätigten Accounts
 
+### Besonderheiten: Audio & Auto-Mic
+- **Auto-Play Schutz**: Moderne Browser blockieren die Audiowiedergabe ohne Benutzerinteraktion. Beim ersten Seitenaufruf erscheint daher ein **"Mikrofon & Audio aktivieren"**-Popup. Erst nach Klick wird die AudioContext-Instanz freigeschaltet und die erste Begrüßung gesprochen.
+- **Auto-Mic**: Ist der "Auto-Mic"-Schieberegler aktiviert, triggert die Anwendung das Mikrofon automatisch. Hierfür decodiert das Frontend die Azure Audio-Daten manuell (via Web Audio API), um auf die Millisekunde genau das `onended`-Event abzufangen. Das Mikrofon öffnet sich garantiert erst, wenn der Bot *vollständig* fertig gesprochen hat, und überlappendes Audio beim Unterbrechen wird verhindert.
+
 ### Installation
 
 ```bash

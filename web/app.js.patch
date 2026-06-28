@@ -1,0 +1,20 @@
+--- web/app.js
++++ web/app.js
+@@ -10,13 +10,15 @@
+ const input = document.getElementById("message");
+ const voiceBtn = document.getElementById("voice-btn");
+-let activeAudioSource = null;
+-let audioContext = null;
++const restartBtn = document.getElementById("restart-btn");
++const submitBtn = form.querySelector('button[type="submit"]');
++const voiceSelect = document.getElementById("voice-select");
+ 
++let activeAudioSource = null;
++let audioContext = null;
++
+ function getAudioContext() {
+   if (!audioContext) {
+     audioContext = new (window.AudioContext || window.webkitAudioContext)();
+   }
+   return audioContext;
+ }
